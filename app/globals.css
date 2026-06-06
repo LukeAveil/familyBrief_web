@@ -1,26 +1,221 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ── TAILWIND V4 THEME ──────────────────────────────────── */
+@theme {
+  --font-sans: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --color-primary:       #3a86a4;
+  --color-primary-hover: #2e6e89;
+  --color-primary-dark:  #1d4d61;
+  --color-primary-light: #e3f0f6;
+  --color-primary-mid:   #9ecdd8;
+
+  --color-canvas:  #f3f7fb;
+  --color-surface: #ffffff;
+
+  --color-ink:        #192d38;
+  --color-ink-muted:  #537080;
+  --color-ink-subtle: #8aaab6;
+
+  --color-line:        #cde0ea;
+  --color-line-strong: #a6cad6;
+
+  --color-success:        #2e8970;
+  --color-success-light:  #e5f3ef;
+  --color-success-line:   #9ed3c6;
+
+  --color-error:        #c53030;
+  --color-error-light:  #fdf0ef;
+  --color-error-line:   #f0b8b4;
+
+  --color-amber:       #a07020;
+  --color-amber-light: #fef9e7;
+  --color-amber-line:  #edd98a;
+
+  --color-gcal:       #1a73e8;
+  --color-gcal-hover: #1558c0;
+
+  /* Border radius — overrides Tailwind defaults with design values */
+  --radius-sm:  8px;
+  --radius-md:  12px;
+  --radius-lg:  16px;
+  --radius-xl:  20px;
+  --radius-2xl: 28px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(25,45,56,.06), 0 1px 2px rgba(25,45,56,.04);
+  --shadow-md: 0 4px 16px rgba(25,45,56,.08), 0 1px 4px rgba(25,45,56,.04);
+  --shadow-lg: 0 8px 32px rgba(25,45,56,.10), 0 2px 8px rgba(25,45,56,.05);
+
+  /* Named animations (generates animate-* utilities) */
+  --animate-screen-in:  screenIn  300ms cubic-bezier(.2,0,0,1) both;
+  --animate-screen-out: screenOut 180ms ease both;
+  --animate-beam-scan:  beamScan  2s ease-in-out infinite;
+  --animate-doc-pulse:  docPulse  2.5s ease-in-out infinite;
+  --animate-sweep:      sweep     900ms ease-in-out infinite alternate;
+  --animate-fade-in:    fadeIn    200ms ease both;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ── KEYFRAMES ───────────────────────────────────────────── */
+@keyframes screenIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes screenOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-10px); }
+}
+@keyframes beamScan {
+  0%   { top: 5px;  opacity: .8; }
+  44%  { top: 78px; opacity: .8; }
+  50%  { top: 78px; opacity: 0;  }
+  56%  { top: 5px;  opacity: 0;  }
+  60%  { top: 5px;  opacity: .8; }
+  100% { top: 5px;  opacity: .8; }
+}
+@keyframes docPulse {
+  0%, 100% { box-shadow: var(--shadow-sm); }
+  50%       { box-shadow: 0 4px 20px rgba(58,134,164,.18); }
+}
+@keyframes sweep {
+  from { margin-left: -5%;  }
+  to   { margin-left:  60%; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ── BASE ────────────────────────────────────────────────── */
+@layer base {
+  html, body { height: 100%; }
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
   }
+  button { cursor: pointer; background: none; border: none; font-family: inherit; }
+  a { text-decoration: none; color: inherit; }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ── COMPONENT STATE CLASSES ─────────────────────────────── */
+/* These handle compound selectors and animated states that Tailwind utilities can't express. */
+@layer components {
+
+  /* Screen transitions */
+  .screen-enter { animation: var(--animate-screen-in); }
+  .screen-exit  { animation: var(--animate-screen-out); pointer-events: none; }
+
+  /* Upload zone interactive states */
+  .upload-zone {
+    transition: border-color 200ms ease, background 200ms ease, box-shadow 200ms ease;
+    outline: none;
+  }
+  .upload-zone:hover,
+  .upload-zone:focus-visible {
+    border-color: var(--color-primary);
+    background-color: var(--color-primary-light);
+    box-shadow: 0 0 0 4px rgba(58,134,164,.08);
+  }
+  .upload-zone.drag-active {
+    border-color: var(--color-primary);
+    border-style: solid;
+    background-color: var(--color-primary-light);
+    box-shadow: 0 0 0 5px rgba(58,134,164,.12);
+  }
+
+  /* Upload overlay progress sweep */
+  .upload-bar::after {
+    content: '';
+    display: block;
+    width: 45%;
+    height: 100%;
+    background: var(--color-primary);
+    border-radius: 2px;
+    animation: sweep 900ms ease-in-out infinite alternate;
+  }
+
+  /* Scanning beam inside the document illustration */
+  .scan-beam {
+    position: absolute;
+    inset-inline: 0;
+    height: 2px;
+    background: linear-gradient(to right, transparent, var(--color-primary) 30%, var(--color-primary) 70%, transparent);
+    box-shadow: 0 0 10px 2px rgba(58,134,164,.35);
+    animation: beamScan 2s ease-in-out infinite;
+    z-index: 2;
+  }
+
+  /* Document pulse */
+  .proc-doc { animation: docPulse 2.5s ease-in-out infinite; }
+
+  /* Processing step message states */
+  .proc-msg { transition: opacity 300ms, color 300ms; }
+  .proc-msg.pending { opacity: .4; color: var(--color-ink-subtle); }
+  .proc-msg.active  { opacity: 1;  color: var(--color-ink); font-weight: 500; }
+  .proc-msg.done    { opacity: 1;  color: var(--color-success); }
+
+  /* Event card selection states */
+  .event-card { transition: border-color 200ms, box-shadow 200ms; }
+  .event-card.selected {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-light), var(--shadow-sm);
+  }
+  .event-card.uncertain { border-style: dashed; }
+
+  /* Checkbox fill */
+  .check-box { transition: background 150ms, border-color 150ms; }
+  .check-box.checked {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+
+  /* Added-to-calendar success banner */
+  .added-banner { animation: screenIn 280ms cubic-bezier(.2,0,0,1) both; }
+
+  /* Nav hover states */
+  .nav-logo-btn { transition: background 150ms; }
+  .nav-logo-btn:hover { background-color: var(--color-primary-light); }
+
+  .nav-sign-in { transition: background 150ms, color 150ms; }
+  .nav-sign-in:hover { background-color: var(--color-primary-light); color: var(--color-primary); }
+
+  /* Button transitions */
+  .btn-primary-base { transition: background 150ms, transform 80ms; }
+  .btn-primary-base:hover { background-color: var(--color-primary-hover); }
+  .btn-primary-base:active { transform: scale(.98); }
+
+  .btn-secondary-base { transition: background 150ms, border-color 150ms; }
+  .btn-secondary-base:hover { background-color: var(--color-primary-light); border-color: var(--color-primary); }
+
+  .btn-gcal-base { transition: background 150ms, transform 80ms; }
+  .btn-gcal-base:hover { background-color: var(--color-gcal-hover); }
+  .btn-gcal-base:active { transform: scale(.98); }
+  .btn-gcal-base:disabled { background-color: var(--color-ink-subtle); cursor: not-allowed; transform: none; }
+
+  .btn-ghost-base { transition: background 150ms, color 150ms, border-color 150ms; }
+  .btn-ghost-base:hover {
+    background-color: var(--color-primary-light);
+    color: var(--color-primary);
+    border-color: var(--color-line-strong);
+  }
+
+  /* Airy 2-column layout at 680px+ */
+  @media (min-width: 680px) {
+    .layout-airy .upload-page {
+      display: grid;
+      grid-template-columns: 1fr 1.15fr;
+      gap: 44px;
+      align-items: start;
+    }
+    .layout-airy .upload-tagline h1 { font-size: 30px; }
+  }
+
+  /* Steps strip stacks on mobile */
+  @media (max-width: 520px) {
+    .steps-strip { flex-direction: column; gap: 12px; }
+    .step-sep    { display: none; }
+    .upload-actions { flex-direction: column; align-items: stretch; }
+  }
 }
