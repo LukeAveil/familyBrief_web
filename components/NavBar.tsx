@@ -15,9 +15,6 @@ export default function NavBar({ onLogoClick }: NavBarProps) {
         <LogoMark />
         <span className="text-[17px] font-bold tracking-[-0.3px] text-ink">FamilyBrief</span>
       </button>
-      <button className="nav-sign-in text-sm font-medium text-ink-muted px-[14px] py-[7px] rounded-md whitespace-nowrap shrink-0">
-        Sign in
-      </button>
     </header>
   )
 }

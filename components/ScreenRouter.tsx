@@ -50,7 +50,8 @@ export default function ScreenRouter() {
           <div key={app.screen} className={transitioning ? 'screen-exit' : 'screen-enter'}>
             {app.screen === 'upload' && (
               <UploadScreen
-                onFileSelect={(name) => navigate({ screen: 'processing', filename: name })}
+                onUploadSuccess={(name) => navigate({ screen: 'processing', filename: name })}
+                onUploadError={(name) => navigate({ screen: 'error', filename: name })}
               />
             )}
             {app.screen === 'processing' && (

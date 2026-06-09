@@ -3,17 +3,12 @@ import StepsStrip from './StepsStrip'
 import UploadZone from './UploadZone'
 
 interface UploadScreenProps {
-  onFileSelect: (filename: string) => void
+  onUploadSuccess: (filename: string) => void
+  onUploadError: (filename: string) => void
   layout?: LayoutStyle
 }
 
-const DEMO_PILLS = [
-  { label: '1 event',    filename: 'sports-day.pdf' },
-  { label: '3 events',  filename: 'summer-newsletter.pdf' },
-  { label: 'Error state', filename: 'blurry-photo.jpg' },
-]
-
-export default function UploadScreen({ onFileSelect, layout = 'focus' }: UploadScreenProps) {
+export default function UploadScreen({ onUploadSuccess, onUploadError, layout = 'focus' }: UploadScreenProps) {
   return (
     <div className={`upload-page${layout === 'airy' ? ' layout-airy' : ''}`}>
       {layout === 'structured' ? (
@@ -29,22 +24,7 @@ export default function UploadScreen({ onFileSelect, layout = 'focus' }: UploadS
         </div>
       )}
 
-      <div>
-        <UploadZone onFileSelect={onFileSelect} />
-
-        <div className="flex items-center gap-2 mt-[18px] flex-wrap justify-center">
-          <span className="text-xs text-ink-subtle">Try a demo:</span>
-          {DEMO_PILLS.map(({ label, filename }) => (
-            <button
-              key={label}
-              className="text-xs text-primary px-[10px] py-[3px] rounded-full border border-primary-mid bg-surface hover:bg-primary-light transition-colors"
-              onClick={() => onFileSelect(filename)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <UploadZone onUploadSuccess={onUploadSuccess} onUploadError={onUploadError} />
     </div>
   )
 }
