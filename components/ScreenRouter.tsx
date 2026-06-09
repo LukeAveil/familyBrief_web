@@ -41,6 +41,25 @@ export default function ScreenRouter() {
     }, 180)
   }
 
+  const handleFileReady = async (file: File) => {
+    navigate({ screen: 'processing', filename: file.name })
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (data.ok) {
+        navigate({ screen: 'results', filename: file.name, events: data.events })
+      } else {
+        navigate({ screen: 'error', filename: file.name })
+      }
+    } catch {
+      navigate({ screen: 'error', filename: file.name })
+    }
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-canvas">
       <NavBar onLogoClick={() => navigate({ screen: 'upload', filename: '', events: [] })} />
@@ -49,10 +68,7 @@ export default function ScreenRouter() {
         <div className="w-full max-w-[480px]">
           <div key={app.screen} className={transitioning ? 'screen-exit' : 'screen-enter'}>
             {app.screen === 'upload' && (
-              <UploadScreen
-                onUploadSuccess={(name) => navigate({ screen: 'processing', filename: name })}
-                onUploadError={(name) => navigate({ screen: 'error', filename: name })}
-              />
+              <UploadScreen onFileReady={handleFileReady} />
             )}
             {app.screen === 'processing' && (
               <ProcessingScreen filename={app.filename} />

@@ -3,12 +3,11 @@ import StepsStrip from './StepsStrip'
 import UploadZone from './UploadZone'
 
 interface UploadScreenProps {
-  onUploadSuccess: (filename: string) => void
-  onUploadError: (filename: string) => void
+  onFileReady: (file: File) => void
   layout?: LayoutStyle
 }
 
-export default function UploadScreen({ onUploadSuccess, onUploadError, layout = 'focus' }: UploadScreenProps) {
+export default function UploadScreen({ onFileReady, layout = 'focus' }: UploadScreenProps) {
   return (
     <div className={`upload-page${layout === 'airy' ? ' layout-airy' : ''}`}>
       {layout === 'structured' ? (
@@ -24,7 +23,7 @@ export default function UploadScreen({ onUploadSuccess, onUploadError, layout = 
         </div>
       )}
 
-      <UploadZone onUploadSuccess={onUploadSuccess} onUploadError={onUploadError} />
+      <UploadZone onFileReady={onFileReady} />
     </div>
   )
 }

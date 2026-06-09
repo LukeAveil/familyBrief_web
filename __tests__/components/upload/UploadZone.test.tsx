@@ -1,15 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import UploadZone from '@/components/upload/UploadZone'
 
-const onUploadSuccess = jest.fn()
-const onUploadError = jest.fn()
-
-const mockFetch = (ok: boolean, filename = 'letter.pdf') => {
-  global.fetch = jest.fn().mockResolvedValue({
-    json: () => Promise.resolve(ok ? { ok: true, filename } : { ok: false, error: 'Bad type' }),
-  } as Response)
-}
+const onFileReady = jest.fn()
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -17,13 +10,12 @@ beforeEach(() => {
 
 const setup = () => {
   const user = userEvent.setup()
-  render(<UploadZone onUploadSuccess={onUploadSuccess} onUploadError={onUploadError} />)
+  render(<UploadZone onFileReady={onFileReady} />)
   return { user }
 }
 
 describe('UploadZone', () => {
-  it('renders the drop zone and buttons', () => {
-    mockFetch(true)
+  it('renders the drop zone and action buttons', () => {
     setup()
     expect(screen.getByRole('button', { name: /choose file/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /take photo/i })).toBeInTheDocument()
@@ -31,83 +23,47 @@ describe('UploadZone', () => {
   })
 
   it('displays accepted file types', () => {
-    mockFetch(true)
     setup()
     expect(screen.getByText(/accepts/i)).toBeInTheDocument()
   })
 
-  it('calls onUploadSuccess with the filename after a successful upload', async () => {
-    mockFetch(true, 'school-letter.pdf')
+  it('calls onFileReady with the File object when a valid file is selected', async () => {
     const { user } = setup()
-
-    const file = new File(['content'], 'school-letter.pdf', { type: 'application/pdf' })
-    const input = document.querySelector<HTMLInputElement>('input[type="file"]:not([capture])')!
-    await user.upload(input, file)
-
-    await waitFor(() => expect(onUploadSuccess).toHaveBeenCalledWith('school-letter.pdf'))
-    expect(onUploadError).not.toHaveBeenCalled()
-  })
-
-  it('calls onUploadError with the filename when the API returns ok:false', async () => {
-    mockFetch(false)
-    const { user } = setup()
-
-    // Use a valid MIME type so userEvent (which respects `accept`) allows the upload.
-    // The API mock returns ok:false to simulate server-side rejection.
     const file = new File(['content'], 'letter.pdf', { type: 'application/pdf' })
     const input = document.querySelector<HTMLInputElement>('input[type="file"]:not([capture])')!
     await user.upload(input, file)
-
-    await waitFor(() => expect(onUploadError).toHaveBeenCalledWith('letter.pdf'))
-    expect(onUploadSuccess).not.toHaveBeenCalled()
+    expect(onFileReady).toHaveBeenCalledTimes(1)
+    expect(onFileReady).toHaveBeenCalledWith(file)
   })
 
-  it('calls onUploadError when fetch throws a network error', async () => {
-    global.fetch = jest.fn().mockRejectedValue(new Error('Network failure'))
+  it('calls onFileReady for a valid JPEG', async () => {
     const { user } = setup()
-
-    const file = new File(['content'], 'letter.pdf', { type: 'application/pdf' })
+    const file = new File(['content'], 'photo.jpg', { type: 'image/jpeg' })
     const input = document.querySelector<HTMLInputElement>('input[type="file"]:not([capture])')!
     await user.upload(input, file)
-
-    await waitFor(() => expect(onUploadError).toHaveBeenCalledWith('letter.pdf'))
+    expect(onFileReady).toHaveBeenCalledWith(file)
   })
 
-  it('disables buttons and shows uploading state while the request is in flight', async () => {
-    let resolve: (v: unknown) => void
-    global.fetch = jest.fn().mockReturnValue(
-      new Promise(r => { resolve = r })
-    )
-    const { user } = setup()
+  it('does not call onFileReady for a disallowed MIME type dragged in', async () => {
+    setup()
+    // text/plain is not in ACCEPTED_FILE_TYPES so handleFile returns early
+    const file = new File(['content'], 'notes.txt', { type: 'text/plain' })
+    const zone = screen.getByRole('button', { name: /upload a school letter/i })
 
-    const file = new File(['content'], 'letter.pdf', { type: 'application/pdf' })
-    const input = document.querySelector<HTMLInputElement>('input[type="file"]:not([capture])')!
-    await user.upload(input, file)
+    const dropEvent = new Event('drop', { bubbles: true }) as unknown as React.DragEvent
+    Object.defineProperty(dropEvent, 'dataTransfer', {
+      value: { files: [file] },
+    })
+    zone.dispatchEvent(dropEvent as unknown as Event)
 
-    // Both the heading span and the Choose-file button show "Uploading…"
-    expect(screen.getAllByText(/uploading…/i).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByRole('button', { name: /uploading…/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /take photo/i })).toBeDisabled()
-
-    // Resolve the request so the component cleans up
-    resolve!({ json: () => Promise.resolve({ ok: true, filename: 'letter.pdf' }) })
-    await waitFor(() => expect(screen.getByText(/drop your letter here/i)).toBeInTheDocument())
+    expect(onFileReady).not.toHaveBeenCalled()
   })
 
-  it('POSTs a FormData object with a "file" field to /api/upload', async () => {
-    mockFetch(true, 'letter.pdf')
+  it('does not call onFileReady when no file is given', async () => {
     const { user } = setup()
-
-    const file = new File(['content'], 'letter.pdf', { type: 'application/pdf' })
     const input = document.querySelector<HTMLInputElement>('input[type="file"]:not([capture])')!
-    await user.upload(input, file)
-
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1))
-
-    const [url, init] = (global.fetch as jest.Mock).mock.calls[0]
-    expect(url).toBe('/api/upload')
-    expect(init.method).toBe('POST')
-    expect(init.body).toBeInstanceOf(FormData)
-    expect((init.body as FormData).get('file')).toEqual(file)
+    // Upload with no files — userEvent skips if array is empty
+    await user.upload(input, [])
+    expect(onFileReady).not.toHaveBeenCalled()
   })
 })

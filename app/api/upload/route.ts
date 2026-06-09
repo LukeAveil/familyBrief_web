@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAcceptedType, MAX_FILE_SIZE_BYTES } from '@/lib/file-config'
+import { extractEventsFromFile } from '@/lib/extract-events'
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData()
@@ -15,6 +16,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'File too large (max 20 MB)' }, { status: 413 })
   }
 
-  // AI extraction will be wired here
-  return NextResponse.json({ ok: true, filename: file.name })
+  try {
+    const bytes = await file.arrayBuffer()
+    const base64 = Buffer.from(bytes).toString('base64')
+    const events = await extractEventsFromFile(base64, file.type)
+    return NextResponse.json({ ok: true, filename: file.name, events })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Extraction failed'
+    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+  }
 }
