@@ -45,10 +45,3 @@ export const MOCK_MULTIPLE: CalendarEvent[] = [
     confidence: 'medium',
   },
 ]
-
-export const PROC_MSGS = [
-  'Scanning your document…',
-  'Looking for dates and times…',
-  'Reading event details…',
-  'Finishing up…',
-]

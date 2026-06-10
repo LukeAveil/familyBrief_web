@@ -1,19 +1,42 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import { CheckIcon } from '@/components/icons'
-import { PROC_MSGS } from '@/lib/mock-data'
+
+const MSGS = [
+  'Scanning your document…',
+  'Looking for dates and times…',
+  'Reading event details…',
+  'Finishing up…',
+]
+
+// Step N becomes active at this elapsed-ms mark, progress bar reaches this %.
+// Timed so all steps cycle before the typical ~10s API response.
+const STEPS: { ms: number; progress: number }[] = [
+  { ms:    0, progress:  5 },
+  { ms: 2500, progress: 35 },
+  { ms: 5500, progress: 60 },
+  { ms: 8000, progress: 80 },
+]
 
 interface ProcessingScreenProps {
   filename: string
-  /** Which step is currently active (0-indexed). For static preview, use 1. */
-  activeStep?: number
-  /** Progress percentage 0–90. For static preview, use 45. */
-  progress?: number
 }
 
-export default function ProcessingScreen({
-  filename,
-  activeStep = 1,
-  progress = 45,
-}: ProcessingScreenProps) {
+export default function ProcessingScreen({ filename }: ProcessingScreenProps) {
+  const [step, setStep] = useState(0)
+  const [progress, setProgress] = useState(5)
+
+  useEffect(() => {
+    const timers = STEPS.slice(1).map(({ ms, progress: p }, i) =>
+      setTimeout(() => {
+        setStep(i + 1)
+        setProgress(p)
+      }, ms)
+    )
+    return () => timers.forEach(clearTimeout)
+  }, [])
+
   return (
     <div className="flex flex-col items-center">
       <div className="bg-surface border border-line rounded-[28px] px-7 py-9 text-center shadow-md w-full">
@@ -43,8 +66,8 @@ export default function ProcessingScreen({
 
         {/* Step messages */}
         <div className="flex flex-col gap-[7px] text-left mb-5">
-          {PROC_MSGS.map((msg, i) => {
-            const state = i < activeStep ? 'done' : i === activeStep ? 'active' : 'pending'
+          {MSGS.map((msg, i) => {
+            const state = i < step ? 'done' : i === step ? 'active' : 'pending'
             return (
               <div key={i} className={`proc-msg ${state} flex items-center gap-2 text-[13px]`}>
                 <span className="w-4 h-4 shrink-0 flex items-center justify-center">
@@ -66,7 +89,7 @@ export default function ProcessingScreen({
         <div className="h-1 bg-primary-light rounded-sm overflow-hidden mb-3">
           <div
             className="h-full bg-primary rounded-sm"
-            style={{ width: `${progress}%`, transition: 'width 300ms ease' }}
+            style={{ width: `${progress}%`, transition: 'width 600ms ease' }}
           />
         </div>
 

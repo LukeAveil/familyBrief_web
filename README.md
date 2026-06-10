@@ -58,7 +58,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### Blocking for production test deploy
 
-- [ ] **Processing screen is static** — `activeStep` and `progress` are hardcoded defaults; the screen doesn't animate while the real upload is in flight. Needs a polling loop or streamed progress from the API.
+- [x] **Processing screen animates** — steps and progress bar advance on timers timed to the typical ~10s API response; cleanup on unmount when the response arrives
 - [x] **Empty state** — zero events now shows a dedicated screen with a friendly message and a "Try a different letter" button
 - [x] **"Try again" now retries** — the last uploaded file is held in a ref and re-submitted to the API when the user taps retry
 - [ ] **Vercel deploy + `ANTHROPIC_API_KEY` env var** — the app won't function without this set in the Vercel project settings.
