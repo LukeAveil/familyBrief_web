@@ -8,20 +8,25 @@ A mobile-first web app that lets parents upload a school letter (PDF or photo), 
 
 - **Next.js 16** (App Router)
 - **Tailwind CSS v4** — design tokens defined in `globals.css` via `@theme`
+- **Anthropic SDK** — Claude handles event extraction from PDFs and images
 - **TypeScript**
-- Deployed to **Vercel** (planned)
+- Target deploy: **Vercel**
 
 ## Project structure
 
 ```
+app/
+  api/upload/     — POST route: validates file, calls Claude, returns events
 components/
-  upload/         — Upload screen, drag-and-drop zone, steps strip
-  processing/     — Scanning animation and progress screen
+  upload/         — Upload screen and drag-and-drop zone
+  processing/     — Scanning animation screen
   results/        — Event cards, multi-select, Google Calendar CTA
-  error/          — Error state with tips
+  error/          — Error state with retry tips
   icons/          — SVG icon set
 lib/
-  mock-data.ts    — Fixture data for development
+  extract-events  — Claude API call, prompt, and response → CalendarEvent mapping
+  file-config     — Accepted MIME types and 20 MB size limit
+  mock-data       — PROC_MSGS used by ProcessingScreen; MOCK_* fixtures unused
 types/
   index.ts        — Shared TypeScript types
 ```
@@ -31,34 +36,36 @@ types/
 ```bash
 nvm use 20
 npm install
+cp .env.local.example .env.local   # add ANTHROPIC_API_KEY
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Use the dev nav bar at the bottom to switch between screens.
+Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## Todo
+## Status — what's done vs. what's left
 
-### Core features
-- [ ] File upload API route — accept PDF/image and pass to AI extraction
-- [ ] AI event extraction — integrate with Claude API to parse letter content
-- [ ] Wire up real screen flow — replace dev nav switcher with actual state machine
-- [ ] Google Calendar integration — generate and open pre-filled calendar URLs
-- [ ] Processing screen — drive progress bar and step messages from real API response time
+### Done
+- [x] Full UI — upload, processing, results, and error screens with transitions
+- [x] File upload API route — type and size validation (20 MB cap)
+- [x] AI extraction — Claude reads PDFs and images, returns structured events
+- [x] Google Calendar URL generation — pre-fills title, date/time, location, notes
+- [x] Multi-event selection — checkboxes, "Add N events" bulk action
+- [x] Error screen — user-facing tips for retrying with a better photo
+- [x] Camera capture — "Take photo" button triggers device camera on mobile
+- [x] Dev screen switcher removed
 
-### Auth & users
-- [ ] Sign in / Sign up — add authentication (Auth.js or Clerk)
-- [ ] User sessions — persist uploaded letters and extracted events
-- [ ] Usage limits — rate limiting per user for AI extraction calls
+### Blocking for production test deploy
 
-### Polish
-- [ ] Mobile camera capture — hook up "Take photo" button to device camera
-- [ ] Error handling — surface specific errors (file too large, unsupported format, AI failure)
-- [ ] Empty states — handle letters with no detectable events
-- [ ] Accessibility audit — keyboard nav, screen reader testing
+- [ ] **Processing screen is static** — `activeStep` and `progress` are hardcoded defaults; the screen doesn't animate while the real upload is in flight. Needs a polling loop or streamed progress from the API.
+- [ ] **Empty state** — if Claude finds no events, `ResultsScreen` renders "Found 0 events" with an empty list and an inert "Add all 0 events" button. Needs a dedicated empty state UI.
+- [ ] **"Try again" doesn't retry** — `ErrorScreen`'s retry button navigates back to `processing` without re-submitting the file (it's gone from memory). Either hold the file in state or navigate back to upload.
+- [ ] **Vercel deploy + `ANTHROPIC_API_KEY` env var** — the app won't function without this set in the Vercel project settings.
 
-### Infrastructure
-- [ ] Deploy to Vercel
-- [ ] Set up environment variables — `ANTHROPIC_API_KEY`, etc.
-- [ ] Remove dev screen switcher before production launch
+### Nice-to-have before sharing with real users
+
+- [x] **Timezone handling** — calendar times are now floating (no `Z` suffix) so Google Calendar uses the user's local timezone
+- [x] **HEIC removed** — HEIC is no longer accepted (Anthropic API doesn't support it natively; re-add once server-side conversion via `sharp` is in place)
+- [ ] **Rate limiting** — no guard against bulk API use; add a per-IP limit before publicising the URL.
+- [ ] **Dead code cleanup** — `LayoutStyle` (`airy`/`structured`) and `ResultsView` (`compact`) types exist but are never used in production paths. `StepsStrip` component is unreachable. `MOCK_SINGLE`/`MOCK_MULTIPLE` in `mock-data.ts` are no longer imported.

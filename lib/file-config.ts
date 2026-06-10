@@ -7,7 +7,6 @@ export const ACCEPTED_FILE_TYPES: FileType[] = [
   { mimeType: 'application/pdf', extensions: ['pdf'] },
   { mimeType: 'image/jpeg',      extensions: ['jpg', 'jpeg'] },
   { mimeType: 'image/png',       extensions: ['png'] },
-  { mimeType: 'image/heic',      extensions: ['heic'] },
   { mimeType: 'image/webp',      extensions: ['webp'] },
 ]
 

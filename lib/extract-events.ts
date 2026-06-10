@@ -86,16 +86,17 @@ function buildCalString(date: string, time?: string, endDate?: string, endTime?:
   }
 
   const [sh, sm] = time.split(':')
-  const start = `${d}T${sh}${sm}00Z`
+  // No Z suffix — floating local time so Google Calendar uses the user's timezone
+  const start = `${d}T${sh}${sm}00`
 
   let end: string
   if (endTime) {
     const [eh, em] = endTime.split(':')
     const ed = endDate ? endDate.replace(/-/g, '') : d
-    end = `${ed}T${eh}${em}00Z`
+    end = `${ed}T${eh}${em}00`
   } else {
     const endHour = String(parseInt(sh) + 1).padStart(2, '0')
-    end = `${d}T${endHour}${sm}00Z`
+    end = `${d}T${endHour}${sm}00`
   }
 
   return `${start}/${end}`
