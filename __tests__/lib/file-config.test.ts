@@ -37,8 +37,8 @@ describe('isAcceptedType', () => {
     expect(isAcceptedType(makeFile('image/png'))).toBe(true)
   })
 
-  it('accepts HEIC', () => {
-    expect(isAcceptedType(makeFile('image/heic'))).toBe(true)
+  it('rejects HEIC', () => {
+    expect(isAcceptedType(makeFile('image/heic'))).toBe(false)
   })
 
   it('accepts WebP', () => {

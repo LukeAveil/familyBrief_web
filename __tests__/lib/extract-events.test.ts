@@ -94,7 +94,7 @@ describe('extractEventsFromFile', () => {
       category: 'school',
     }]))
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
-    expect(event.cal).toBe('20250626T093000Z/20250626T120000Z')
+    expect(event.cal).toBe('20250626T093000/20250626T120000')
   })
 
   it('throws when the Anthropic API call fails', async () => {
