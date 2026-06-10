@@ -23,6 +23,9 @@ function buildCalUrl(ev: CalendarEvent): string {
 }
 
 export default function ResultsScreen({ filename, events, onReset, compact }: ResultsScreenProps) {
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map(e => e.id)))
+  const [added, setAdded] = useState(false)
+
   if (events.length === 0) {
     return (
       <div className="text-center py-2">
@@ -49,9 +52,6 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
       </div>
     )
   }
-
-  const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map(e => e.id)))
-  const [added, setAdded] = useState(false)
 
   const multi = events.length > 1
 
