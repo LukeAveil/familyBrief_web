@@ -53,19 +53,25 @@ Open [http://localhost:3000](http://localhost:3000).
 - [x] Google Calendar URL generation — pre-fills title, date/time, location, notes
 - [x] Multi-event selection — checkboxes, "Add N events" bulk action
 - [x] Error screen — user-facing tips for retrying with a better photo
-- [x] Camera capture — "Take photo" button triggers device camera on mobile
+- [x] Camera capture — "Take photo" button appears on touch devices only; opens rear camera via `capture="environment"`
 - [x] Dev screen switcher removed
+- [x] Processing screen animates — steps and progress bar advance on timers timed to the typical ~10s API response; cleanup on unmount when the response arrives
+- [x] Empty state — zero events now shows a dedicated screen with a friendly message and a "Try a different letter" button
+- [x] "Try again" now retries — the last uploaded file is held in a ref and re-submitted to the API when the user taps retry
+- [x] Timezone handling — calendar times are now floating (no `Z` suffix) so Google Calendar uses the user's local timezone
+- [x] HEIC removed — HEIC is no longer accepted (Anthropic API doesn't support it natively; re-add once server-side conversion via `sharp` is in place)
+- [x] Error responses sanitised — raw SDK error messages are no longer forwarded to the client
+- [x] Concurrent upload protection — starting a new upload aborts any in-flight request
+- [x] Security headers — `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` on all routes; `X-Powered-By` header removed
 
 ### Blocking for production test deploy
 
-- [x] **Processing screen animates** — steps and progress bar advance on timers timed to the typical ~10s API response; cleanup on unmount when the response arrives
-- [x] **Empty state** — zero events now shows a dedicated screen with a friendly message and a "Try a different letter" button
-- [x] **"Try again" now retries** — the last uploaded file is held in a ref and re-submitted to the API when the user taps retry
 - [ ] **Vercel deploy + `ANTHROPIC_API_KEY` env var** — the app won't function without this set in the Vercel project settings.
 
 ### Nice-to-have before sharing with real users
 
-- [x] **Timezone handling** — calendar times are now floating (no `Z` suffix) so Google Calendar uses the user's local timezone
-- [x] **HEIC removed** — HEIC is no longer accepted (Anthropic API doesn't support it natively; re-add once server-side conversion via `sharp` is in place)
-- [ ] **Rate limiting** — no guard against bulk API use; add a per-IP limit before publicising the URL.
+- [ ] **Rate limiting** — no guard against bulk API use; add a per-IP limit (e.g. `@upstash/ratelimit`) before publicising the URL.
+- [ ] **Request timeout** — `extractEventsFromFile` has no deadline; a slow Anthropic response blocks the API route indefinitely. Wrap in a `Promise.race` with a ~30 s timeout, returning 504 to the client.
+- [ ] **File magic-byte validation** — MIME type on upload is client-supplied and can be spoofed. Validate the first few bytes of the `arrayBuffer()` against expected signatures before passing to Claude.
 - [ ] **Dead code cleanup** — `LayoutStyle` (`airy`/`structured`) and `ResultsView` (`compact`) types exist but are never used in production paths. `StepsStrip` component is unreachable. `MOCK_SINGLE`/`MOCK_MULTIPLE` in `mock-data.ts` are no longer imported.
+- [ ] **`extract-events.ts` responsibilities** — one file handles prompt building, response parsing, date formatting, and calendar serialisation. Splitting into `lib/build-prompt.ts`, `lib/parse-events.ts`, and `lib/calendar-url.ts` would make each part independently testable.
