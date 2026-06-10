@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const events = await extractEventsFromFile(base64, file.type)
     return NextResponse.json({ ok: true, filename: file.name, events })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Extraction failed'
-    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+    console.error('[upload] extraction failed:', err)
+    return NextResponse.json({ ok: false, error: 'Extraction failed. Please try again.' }, { status: 500 })
   }
 }

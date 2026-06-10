@@ -119,7 +119,7 @@ describe('POST /api/upload — extraction', () => {
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.ok).toBe(false)
-    expect(body.error).toBe('rate limited')
+    expect(body.error).toBe('Extraction failed. Please try again.')
   })
 
   it('each event in the response has the expected CalendarEvent shape', async () => {
