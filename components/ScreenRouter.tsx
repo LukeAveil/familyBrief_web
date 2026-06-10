@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { CalendarEvent, Screen } from '@/types'
 import NavBar from '@/components/NavBar'
 import UploadScreen from '@/components/upload/UploadScreen'
@@ -23,6 +23,7 @@ const DEFAULT_STATE: AppState = {
 export default function ScreenRouter() {
   const [app, setApp] = useState<AppState>(DEFAULT_STATE)
   const [transitioning, setTransitioning] = useState(false)
+  const lastFile = useRef<File | null>(null)
 
   const navigate = (partial: Partial<AppState>) => {
     setTransitioning(true)
@@ -33,6 +34,7 @@ export default function ScreenRouter() {
   }
 
   const handleFileReady = async (file: File) => {
+    lastFile.current = file
     navigate({ screen: 'processing', filename: file.name })
 
     const formData = new FormData()
@@ -74,7 +76,7 @@ export default function ScreenRouter() {
             {app.screen === 'error' && (
               <ErrorScreen
                 filename={app.filename}
-                onRetry={() => navigate({ screen: 'processing' })}
+                onRetry={() => lastFile.current && handleFileReady(lastFile.current)}
                 onReset={() => navigate({ screen: 'upload', filename: '', events: [] })}
               />
             )}

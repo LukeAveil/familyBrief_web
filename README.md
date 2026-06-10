@@ -60,7 +60,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - [ ] **Processing screen is static** — `activeStep` and `progress` are hardcoded defaults; the screen doesn't animate while the real upload is in flight. Needs a polling loop or streamed progress from the API.
 - [x] **Empty state** — zero events now shows a dedicated screen with a friendly message and a "Try a different letter" button
-- [ ] **"Try again" doesn't retry** — `ErrorScreen`'s retry button navigates back to `processing` without re-submitting the file (it's gone from memory). Either hold the file in state or navigate back to upload.
+- [x] **"Try again" now retries** — the last uploaded file is held in a ref and re-submitted to the API when the user taps retry
 - [ ] **Vercel deploy + `ANTHROPIC_API_KEY` env var** — the app won't function without this set in the Vercel project settings.
 
 ### Nice-to-have before sharing with real users
