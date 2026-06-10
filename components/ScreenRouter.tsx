@@ -24,6 +24,7 @@ export default function ScreenRouter() {
   const [app, setApp] = useState<AppState>(DEFAULT_STATE)
   const [transitioning, setTransitioning] = useState(false)
   const lastFile = useRef<File | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const navigate = (partial: Partial<AppState>) => {
     setTransitioning(true)
@@ -34,6 +35,10 @@ export default function ScreenRouter() {
   }
 
   const handleFileReady = async (file: File) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     lastFile.current = file
     navigate({ screen: 'processing', filename: file.name })
 
@@ -41,14 +46,15 @@ export default function ScreenRouter() {
     formData.append('file', file)
 
     try {
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
+      const res = await fetch('/api/upload', { method: 'POST', body: formData, signal: controller.signal })
       const data = await res.json()
       if (data.ok) {
         navigate({ screen: 'results', filename: file.name, events: data.events })
       } else {
         navigate({ screen: 'error', filename: file.name })
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
       navigate({ screen: 'error', filename: file.name })
     }
   }
