@@ -25,6 +25,7 @@ function buildCalUrl(ev: CalendarEvent): string {
 export default function ResultsScreen({ filename, events, onReset, compact }: ResultsScreenProps) {
   const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map(e => e.id)))
   const [added, setAdded] = useState(false)
+  const [adding, setAdding] = useState(false)
 
   if (events.length === 0) {
     return (
@@ -64,10 +65,13 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
   }
 
   const handleAddAll = () => {
-    events
-      .filter(e => selected.has(e.id))
-      .forEach((ev, i) => setTimeout(() => window.open(buildCalUrl(ev), '_blank'), i * 400))
-    setAdded(true)
+    const toOpen = events.filter(e => selected.has(e.id))
+    setAdding(true)
+    toOpen.forEach((ev, i) => setTimeout(() => window.open(buildCalUrl(ev), '_blank'), i * 400))
+    setTimeout(() => {
+      setAdding(false)
+      setAdded(true)
+    }, toOpen.length * 400)
   }
 
   const selCount = selected.size
@@ -133,7 +137,7 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
             <button
               className="btn-gcal-base flex items-center justify-center gap-[10px] w-full bg-gcal text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold disabled:bg-ink-subtle disabled:cursor-not-allowed"
               onClick={handleAddAll}
-              disabled={selCount === 0}
+              disabled={selCount === 0 || adding}
             >
               <GoogleIcon />
               {selCount === 0
