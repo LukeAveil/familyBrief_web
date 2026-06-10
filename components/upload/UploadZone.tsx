@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import DocIllustration from '@/components/DocIllustration'
 import { UploadIcon, CameraIcon } from '@/components/icons'
 import { buildAcceptAttr, isAcceptedType, acceptedExtensionsLabel } from '@/lib/file-config'
@@ -11,12 +11,20 @@ interface UploadZoneProps {
 
 export default function UploadZone({ onFileReady }: UploadZoneProps) {
   const [drag, setDrag] = useState(false)
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
 
-  const handleFile = (f: File | null | undefined) => {
+  useEffect(() => {
+    if (window.matchMedia) {
+      setIsTouchDevice(window.matchMedia('(hover: none) and (pointer: coarse)').matches)
+    }
+  }, [])
+
+  const handleFile = (f: File | null | undefined, input?: HTMLInputElement | null) => {
     if (!f) return
     if (!isAcceptedType(f)) return
+    if (input) input.value = ''
     onFileReady(f)
   }
 
@@ -43,16 +51,16 @@ export default function UploadZone({ onFileReady }: UploadZoneProps) {
         ref={fileRef}
         type="file"
         accept={buildAcceptAttr()}
-        onChange={(e) => handleFile(e.target.files?.[0])}
+        onChange={(e) => handleFile(e.target.files?.[0], e.target)}
         className="hidden"
       />
-      {/* Camera input — mobile: opens camera directly; desktop: falls back to file picker */}
+      {/* Camera input — always in DOM so cameraRef stays valid; button only shown on touch devices */}
       <input
         ref={cameraRef}
         type="file"
         accept="image/*"
         capture="environment"
-        onChange={(e) => handleFile(e.target.files?.[0])}
+        onChange={(e) => handleFile(e.target.files?.[0], e.target)}
         className="hidden"
       />
 
@@ -73,15 +81,17 @@ export default function UploadZone({ onFileReady }: UploadZoneProps) {
           </span>
           Choose file
         </button>
-        <button
-          className="btn-secondary-base inline-flex items-center gap-[7px] text-primary px-5 py-[10px] rounded-lg text-[15px] font-medium border-[1.5px] border-line-strong whitespace-nowrap"
-          onClick={(e) => { e.stopPropagation(); cameraRef.current?.click() }}
-        >
-          <span className="w-[18px] h-[18px] flex items-center shrink-0">
-            <CameraIcon />
-          </span>
-          Take photo
-        </button>
+        {isTouchDevice && (
+          <button
+            className="btn-secondary-base inline-flex items-center gap-[7px] text-primary px-5 py-[10px] rounded-lg text-[15px] font-medium border-[1.5px] border-line-strong whitespace-nowrap"
+            onClick={(e) => { e.stopPropagation(); cameraRef.current?.click() }}
+          >
+            <span className="w-[18px] h-[18px] flex items-center shrink-0">
+              <CameraIcon />
+            </span>
+            Take photo
+          </button>
+        )}
       </div>
 
       <p className="mt-4 text-xs text-ink-subtle">Accepts {acceptedExtensionsLabel()}</p>

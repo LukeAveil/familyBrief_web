@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import UploadZone from '@/components/upload/UploadZone'
 
@@ -6,6 +6,7 @@ const onFileReady = jest.fn()
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // Default: non-touch device (matchMedia global mock returns matches: false)
 })
 
 const setup = () => {
@@ -14,12 +15,35 @@ const setup = () => {
   return { user }
 }
 
+const setupTouchDevice = () => {
+  ;(window.matchMedia as jest.Mock).mockImplementation((query: string) => ({
+    matches: query === '(hover: none) and (pointer: coarse)',
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }))
+  const user = userEvent.setup()
+  render(<UploadZone onFileReady={onFileReady} />)
+  return { user }
+}
+
 describe('UploadZone', () => {
-  it('renders the drop zone and action buttons', () => {
+  it('renders the drop zone and choose-file button on desktop', () => {
     setup()
     expect(screen.getByRole('button', { name: /choose file/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /take photo/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /take photo/i })).not.toBeInTheDocument()
     expect(screen.getByText(/drop your letter here/i)).toBeInTheDocument()
+  })
+
+  it('shows the Take photo button on touch devices', async () => {
+    setupTouchDevice()
+    // useEffect runs after mount — wait for state update
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: /take photo/i })).toBeInTheDocument()
   })
 
   it('displays accepted file types', () => {
