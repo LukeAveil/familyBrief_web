@@ -10,14 +10,8 @@ const MSGS = [
   'Finishing up…',
 ]
 
-// Step N becomes active at this elapsed-ms mark, progress bar reaches this %.
-// Timed so all steps cycle before the typical ~10s API response.
-const STEPS: { ms: number; progress: number }[] = [
-  { ms:    0, progress:  5 },
-  { ms: 2500, progress: 35 },
-  { ms: 5500, progress: 60 },
-  { ms: 8000, progress: 80 },
-]
+const TOTAL_MS = 9000
+const MAX_PROGRESS = 80
 
 interface ProcessingScreenProps {
   filename: string
@@ -28,12 +22,11 @@ export default function ProcessingScreen({ filename }: ProcessingScreenProps) {
   const [progress, setProgress] = useState(5)
 
   useEffect(() => {
-    const timers = STEPS.slice(1).map(({ ms, progress: p }, i) =>
-      setTimeout(() => {
-        setStep(i + 1)
-        setProgress(p)
-      }, ms)
-    )
+    const timers = MSGS.slice(1).map((_, i) => {
+      const ms = Math.round(TOTAL_MS * (i + 1) / MSGS.length)
+      const p  = Math.round(MAX_PROGRESS * (i + 1) / (MSGS.length - 1))
+      return setTimeout(() => { setStep(i + 1); setProgress(p) }, ms)
+    })
     return () => timers.forEach(clearTimeout)
   }, [])
 
