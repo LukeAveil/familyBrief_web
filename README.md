@@ -59,7 +59,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ### Blocking for production test deploy
 
 - [ ] **Processing screen is static** — `activeStep` and `progress` are hardcoded defaults; the screen doesn't animate while the real upload is in flight. Needs a polling loop or streamed progress from the API.
-- [ ] **Empty state** — if Claude finds no events, `ResultsScreen` renders "Found 0 events" with an empty list and an inert "Add all 0 events" button. Needs a dedicated empty state UI.
+- [x] **Empty state** — zero events now shows a dedicated screen with a friendly message and a "Try a different letter" button
 - [ ] **"Try again" doesn't retry** — `ErrorScreen`'s retry button navigates back to `processing` without re-submitting the file (it's gone from memory). Either hold the file in state or navigate back to upload.
 - [ ] **Vercel deploy + `ANTHROPIC_API_KEY` env var** — the app won't function without this set in the Vercel project settings.
 

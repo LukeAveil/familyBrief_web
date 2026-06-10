@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { CalendarEvent } from '@/types'
-import { CheckIcon, RefreshIcon, GoogleIcon } from '@/components/icons'
+import { CalendarIcon, CheckIcon, RefreshIcon, GoogleIcon } from '@/components/icons'
 import EventCard from './EventCard'
 
 interface ResultsScreenProps {
@@ -23,6 +23,33 @@ function buildCalUrl(ev: CalendarEvent): string {
 }
 
 export default function ResultsScreen({ filename, events, onReset, compact }: ResultsScreenProps) {
+  if (events.length === 0) {
+    return (
+      <div className="text-center py-2">
+        <div className="w-16 h-16 rounded-full bg-primary-light text-primary flex items-center justify-center mx-auto mb-5">
+          <span className="w-8 h-8 flex">
+            <CalendarIcon />
+          </span>
+        </div>
+        <h2 className="text-[22px] font-bold tracking-[-0.4px] text-ink mb-[10px]">
+          No events found
+        </h2>
+        <p className="text-[15px] text-ink-muted leading-[1.6] mb-6">
+          We couldn&apos;t spot any dates or events in <span className="font-medium text-ink">{filename}</span>. This sometimes happens with letters that are mostly information rather than schedules.
+        </p>
+        <button
+          className="btn-primary-base inline-flex items-center justify-center gap-[7px] bg-primary text-white w-full px-5 py-[11px] rounded-lg text-[15px] font-semibold"
+          onClick={onReset}
+        >
+          <span className="w-[18px] h-[18px] flex items-center">
+            <RefreshIcon />
+          </span>
+          Try a different letter
+        </button>
+      </div>
+    )
+  }
+
   const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map(e => e.id)))
   const [added, setAdded] = useState(false)
 
