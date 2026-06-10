@@ -36,7 +36,7 @@ export default function UploadZone({ onFileReady }: UploadZoneProps) {
       onDragLeave={() => setDrag(false)}
       onDrop={handleDrop}
       onClick={() => fileRef.current?.click()}
-      onKeyDown={(e) => e.key === 'Enter' && fileRef.current?.click()}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileRef.current?.click() } }}
     >
       {/* Standard file picker */}
       <input
