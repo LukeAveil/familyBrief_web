@@ -92,6 +92,8 @@ describe('POST /api/upload — validation', () => {
 // ─── Extraction tests ─────────────────────────────────────────────────────────
 
 describe('POST /api/upload — extraction', () => {
+  beforeEach(() => { jest.restoreAllMocks() })
+
   it('returns ok:true with filename and events for a valid PDF', async () => {
     mockSuccess()
     const fd = makeFormData(makeFile('letter.pdf', 'application/pdf'))
@@ -113,6 +115,7 @@ describe('POST /api/upload — extraction', () => {
   })
 
   it('returns ok:false with status 500 when the Anthropic API throws', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {})
     mockCreate.mockRejectedValueOnce(new Error('rate limited'))
     const fd = makeFormData(makeFile('letter.pdf', 'application/pdf'))
     const res = await POST(makeRequest(fd))

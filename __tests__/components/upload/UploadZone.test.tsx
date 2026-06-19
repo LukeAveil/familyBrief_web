@@ -78,7 +78,9 @@ describe('UploadZone', () => {
     Object.defineProperty(dropEvent, 'dataTransfer', {
       value: { files: [file] },
     })
-    zone.dispatchEvent(dropEvent as unknown as Event)
+    act(() => {
+      zone.dispatchEvent(dropEvent as unknown as Event)
+    })
 
     expect(onFileReady).not.toHaveBeenCalled()
   })
