@@ -29,7 +29,7 @@ export default function EventCard({ event, selected, onToggle, compact }: EventC
           aria-label={selected ? 'Deselect event' : 'Select event'}
         >
           <span
-            className={`check-box w-[22px] h-[22px] rounded-[6px] border-[1.5px] border-line-strong bg-surface flex items-center justify-center${selected ? ' checked' : ''}`}
+            className={`check-box w-[22px] h-[22px] rounded-[6px] border-[1.5px] flex items-center justify-center ${selected ? 'bg-primary border-primary' : 'bg-surface border-line-strong'}`}
           >
             {selected && (
               <svg viewBox="0 0 12 12" width="12" height="12" fill="none">
