@@ -7,31 +7,33 @@ interface EventCardProps {
   event: CalendarEvent
   selected?: boolean
   onToggle?: () => void
+  calendarAdded?: boolean
   compact?: boolean
 }
 
-export default function EventCard({ event, selected, onToggle, compact }: EventCardProps) {
+export default function EventCard({ event, selected, onToggle, calendarAdded, compact }: EventCardProps) {
   const cardClass = [
     'event-card',
     'bg-surface border-[1.5px] border-line rounded-xl relative shadow-sm',
     compact ? 'p-[14px_16px]' : 'p-5',
-    onToggle ? 'pr-[52px]' : '',
+    (onToggle || calendarAdded) ? 'pr-[52px]' : '',
     selected ? 'selected' : '',
     event.confidence === 'medium' ? 'uncertain' : '',
   ].filter(Boolean).join(' ')
 
   return (
     <article className={cardClass}>
-      {onToggle && (
+      {(onToggle || calendarAdded) && (
         <button
-          className="absolute top-4 right-[14px] p-1 rounded-md flex"
+          className={`absolute top-4 right-[14px] p-1 rounded-md flex${calendarAdded ? ' opacity-50 cursor-default' : ''}`}
           onClick={onToggle}
-          aria-label={selected ? 'Deselect event' : 'Select event'}
+          disabled={!!calendarAdded}
+          aria-label={calendarAdded ? 'Added to calendar' : selected ? 'Deselect event' : 'Select event'}
         >
           <span
-            className={`check-box w-[22px] h-[22px] rounded-[6px] border-[1.5px] flex items-center justify-center ${selected ? 'bg-primary border-primary' : 'bg-surface border-line-strong'}`}
+            className={`check-box w-[22px] h-[22px] rounded-[6px] border-[1.5px] flex items-center justify-center ${(selected || calendarAdded) ? 'bg-primary border-primary' : 'bg-surface border-line-strong'}`}
           >
-            {selected && (
+            {(selected || calendarAdded) && (
               <svg viewBox="0 0 12 12" width="12" height="12" fill="none">
                 <polyline
                   points="2,6.5 4.5,9 10,3"

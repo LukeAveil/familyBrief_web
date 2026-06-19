@@ -24,7 +24,7 @@ function buildCalUrl(ev: CalendarEvent): string {
 
 export default function ResultsScreen({ filename, events, onReset, compact }: ResultsScreenProps) {
   const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map(e => e.id)))
-  const [added, setAdded] = useState(false)
+  const [addedIds, setAddedIds] = useState<Set<number>>(new Set())
   const [adding, setAdding] = useState(false)
 
   if (events.length === 0) {
@@ -65,15 +65,22 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
   }
 
   const handleAddAll = () => {
-    const toOpen = events.filter(e => selected.has(e.id))
+    const toOpen = events.filter(e => selected.has(e.id) && !addedIds.has(e.id))
+    if (toOpen.length === 0) return
     setAdding(true)
     toOpen.forEach((ev, i) => setTimeout(() => window.open(buildCalUrl(ev), '_blank'), i * 400))
     setTimeout(() => {
       setAdding(false)
-      setAdded(true)
+      setAddedIds(prev => new Set([...prev, ...toOpen.map(e => e.id)]))
+      setSelected(prev => {
+        const next = new Set(prev)
+        toOpen.forEach(e => next.delete(e.id))
+        return next
+      })
     }, toOpen.length * 400)
   }
 
+  const allAdded = addedIds.size === events.length
   const selCount = selected.size
 
   return (
@@ -94,7 +101,7 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
       </div>
 
       {/* Added-to-calendar banner */}
-      {added && (
+      {addedIds.size > 0 && (
         <div className="added-banner flex items-center gap-3 bg-success-light border border-success-line rounded-xl px-4 py-[14px] mb-4">
           <span className="text-success w-6 h-6 flex shrink-0">
             <CheckIcon />
@@ -112,15 +119,16 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
           <EventCard
             key={ev.id}
             event={ev}
-            selected={multi ? selected.has(ev.id) : undefined}
-            onToggle={multi ? () => toggle(ev.id) : undefined}
+            selected={multi ? (addedIds.has(ev.id) || selected.has(ev.id)) : undefined}
+            onToggle={multi && !addedIds.has(ev.id) ? () => toggle(ev.id) : undefined}
+            calendarAdded={addedIds.has(ev.id)}
             compact={compact}
           />
         ))}
       </div>
 
       {/* CTA */}
-      {!added && (
+      {!allAdded && (
         <div className="mb-[10px]">
           {!multi ? (
             <a
@@ -128,7 +136,7 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
               href={buildCalUrl(events[0])}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={() => setAdded(true)}
+              onClick={() => setAddedIds(new Set([events[0].id]))}
             >
               <GoogleIcon />
               Add to Google Calendar
