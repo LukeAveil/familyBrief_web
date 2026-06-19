@@ -23,7 +23,7 @@ Today's date is ${today}.
 
 For each event found, extract:
 - title: clear, concise event name
-- date: YYYY-MM-DD format (infer the year if not shown — use next upcoming)
+- date: YYYY-MM-DD format. If the year is not shown: use the current year if the month/day falls on or after today; only use next year if the date has already passed this year.
 - endDate: YYYY-MM-DD if multi-day (optional)
 - time: HH:MM in 24hr format (optional)
 - endTime: HH:MM in 24hr format (optional)
