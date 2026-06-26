@@ -7,7 +7,12 @@ const MODEL = 'claude-sonnet-4-6'
 // even when ANTHROPIC_API_KEY is absent (e.g. in tests that mock the SDK).
 let _client: Anthropic | null = null
 const getClient = () => {
-  if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  if (!_client) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY environment variable is not set')
+    }
+    _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  }
   return _client
 }
 
@@ -86,23 +91,49 @@ function buildCalString(date: string, time?: string, endDate?: string, endTime?:
   }
 
   const [sh, sm] = time.split(':')
+  const hour = parseInt(sh ?? '', 10)
+  const minute = parseInt(sm ?? '', 10)
+  if (isNaN(hour) || isNaN(minute) || hour > 23 || minute > 59) {
+    // Malformed time — fall back to all-day
+    const end = endDate
+      ? endDate.replace(/-/g, '')
+      : (() => {
+          const [y, mo, dy] = date.split('-').map(Number)
+          return new Date(Date.UTC(y, mo - 1, dy + 1)).toISOString().split('T')[0].replace(/-/g, '')
+        })()
+    return `${d}/${end}`
+  }
+
+  const shPad = String(hour).padStart(2, '0')
+  const smPad = String(minute).padStart(2, '0')
   // No Z suffix — floating local time so Google Calendar uses the user's timezone
-  const start = `${d}T${sh}${sm}00`
+  const start = `${d}T${shPad}${smPad}00`
 
   let end: string
   if (endTime) {
-    const [eh, em] = endTime.split(':')
+    const [esh, esm] = endTime.split(':')
+    const endHourVal = parseInt(esh ?? '', 10)
+    const endMinVal = parseInt(esm ?? '', 10)
     const ed = endDate ? endDate.replace(/-/g, '') : d
-    end = `${ed}T${eh}${em}00`
+    if (isNaN(endHourVal) || isNaN(endMinVal) || endHourVal > 23 || endMinVal > 59) {
+      // Malformed endTime — default to one hour after start
+      const fallbackEndHour = String(hour + 1).padStart(2, '0')
+      end = `${ed}T${fallbackEndHour}${smPad}00`
+    } else {
+      end = `${ed}T${String(endHourVal).padStart(2, '0')}${String(endMinVal).padStart(2, '0')}00`
+    }
   } else {
-    const endHour = String(parseInt(sh) + 1).padStart(2, '0')
-    end = `${d}T${endHour}${sm}00`
+    const endHour = String(hour + 1).padStart(2, '0')
+    end = `${d}T${endHour}${smPad}00`
   }
 
   return `${start}/${end}`
 }
 
 function toCalendarEvent(event: ExtractedEvent, id: number): CalendarEvent {
+  const confidence = (!event.time && !event.description && !event.location)
+    ? 'medium'
+    : 'high'
   return {
     id,
     title: event.title,
@@ -111,7 +142,7 @@ function toCalendarEvent(event: ExtractedEvent, id: number): CalendarEvent {
     location: event.location ?? null,
     notes: event.description ?? null,
     cal: buildCalString(event.date, event.time, event.endDate, event.endTime),
-    confidence: 'high',
+    confidence,
   }
 }
 
@@ -149,17 +180,25 @@ export async function extractEventsFromFile(
         { type: 'text', text: buildPrompt() },
       ]
 
-  const response = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    messages: [{ role: 'user', content }],
-  })
+  const response = await getClient().messages.create(
+    {
+      model: MODEL,
+      max_tokens: 1024,
+      messages: [{ role: 'user', content }],
+    },
+    { timeout: 30_000 },
+  )
 
   const raw = response.content[0].type === 'text' ? response.content[0].text : '[]'
   // Strip markdown code fences that the model sometimes adds despite the prompt
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
   const text = (fenceMatch ? fenceMatch[1] : raw).trim()
 
-  const extracted = JSON.parse(text) as ExtractedEvent[]
+  let extracted: ExtractedEvent[]
+  try {
+    extracted = JSON.parse(text) as ExtractedEvent[]
+  } catch {
+    throw new Error(`Claude returned invalid JSON: ${text.slice(0, 200)}`)
+  }
   return extracted.map((e, i) => toCalendarEvent(e, i + 1))
 }

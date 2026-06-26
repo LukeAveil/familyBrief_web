@@ -1,6 +1,4 @@
 export type Screen = 'upload' | 'processing' | 'results' | 'error'
-export type LayoutStyle = 'focus' | 'structured' | 'airy'
-export type ResultsView = 'cards' | 'compact'
 export type Confidence = 'high' | 'medium'
 
 export interface CalendarEvent {

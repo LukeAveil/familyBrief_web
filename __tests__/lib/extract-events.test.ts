@@ -71,6 +71,7 @@ describe('extractEventsFromFile', () => {
     mockResponse(JSON.stringify([{ title: 'Last Day', date: '2025-07-18', category: 'school' }]))
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.time).toBeNull()
+    expect(event.confidence).toBe('medium')
   })
 
   it('produces a null location when not present', async () => {
@@ -101,5 +102,59 @@ describe('extractEventsFromFile', () => {
     mockCreate.mockRejectedValueOnce(new Error('rate limited'))
     await expect(extractEventsFromFile('base64data', 'application/pdf'))
       .rejects.toThrow('rate limited')
+  })
+
+  it('throws a descriptive error when Claude returns non-JSON', async () => {
+    mockResponse('Sorry, I cannot process this document.')
+    await expect(extractEventsFromFile('base64data', 'application/pdf'))
+      .rejects.toThrow(/invalid JSON/i)
+  })
+
+  it('falls back to all-day cal string when time is malformed', async () => {
+    mockResponse(JSON.stringify([{
+      title: 'Event',
+      date: '2025-06-26',
+      time: 'noon',
+      category: 'school',
+    }]))
+    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
+    expect(event.cal).toMatch(/^20250626\/20250627$/)
+  })
+
+  it('assigns medium confidence to events with no time, description, or location', async () => {
+    mockResponse(JSON.stringify([{ title: 'Sparse Event', date: '2025-06-01', category: 'school' }]))
+    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
+    expect(event.confidence).toBe('medium')
+  })
+
+  it('assigns high confidence to events with a time', async () => {
+    mockResponse(JSON.stringify([{ title: 'Timed Event', date: '2025-06-01', time: '09:00', category: 'school' }]))
+    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
+    expect(event.confidence).toBe('high')
+  })
+
+  it('falls back to one hour after start when endTime is malformed', async () => {
+    mockResponse(JSON.stringify([{
+      title: 'Event',
+      date: '2025-06-26',
+      time: '09:30',
+      endTime: 'noon',
+      category: 'school',
+    }]))
+    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
+    // Should fall back to start+1h: 10:30
+    expect(event.cal).toBe('20250626T093000/20250626T103000')
+  })
+
+  it('correctly zero-pads endTime components', async () => {
+    mockResponse(JSON.stringify([{
+      title: 'Event',
+      date: '2025-06-26',
+      time: '09:05',
+      endTime: '09:45',
+      category: 'school',
+    }]))
+    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
+    expect(event.cal).toBe('20250626T090500/20250626T094500')
   })
 })
