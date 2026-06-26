@@ -12,7 +12,7 @@ A mobile-first web app that lets parents upload a school letter (PDF or photo), 
 - **Tailwind CSS v4** — design tokens defined in `globals.css` via `@theme`
 - **Anthropic SDK** — Claude handles event extraction from PDFs and images
 - **TypeScript**
-- Target deploy: **Vercel**
+- **Vercel** — deployed at [familybrief-nu.vercel.app](https://familybrief-nu.vercel.app)
 
 ## Project structure
 
@@ -69,7 +69,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### Blocking for production test deploy
 
-- [ ] **Vercel deploy + `ANTHROPIC_API_KEY` env var** — the app won't function without this set in the Vercel project settings.
+- [x] **Vercel deploy + `ANTHROPIC_API_KEY` env var** — deployed at [familybrief-nu.vercel.app](https://familybrief-nu.vercel.app)
 
 ### Nice-to-have before sharing with real users
 
