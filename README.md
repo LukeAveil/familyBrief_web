@@ -1,3 +1,5 @@
+[![Tests](https://github.com/LukeAveil/familyBrief_web/actions/workflows/test.yml/badge.svg)](https://github.com/LukeAveil/familyBrief_web/actions/workflows/test.yml)
+
 # FamilyBrief
 
 **School letters, sorted.**
@@ -34,7 +36,7 @@ types/
 ## Getting started
 
 ```bash
-nvm use 20
+nvm use
 npm install
 cp .env.local.example .env.local   # add ANTHROPIC_API_KEY
 npm run dev
@@ -47,6 +49,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Status — what's done vs. what's left
 
 ### Done
+
 - [x] Full UI — upload, processing, results, and error screens with transitions
 - [x] File upload API route — type and size validation (20 MB cap)
 - [x] AI extraction — Claude reads PDFs and images, returns structured events
