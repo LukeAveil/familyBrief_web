@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { CalendarEvent } from '@/types'
 import { CalendarIcon, CheckIcon, RefreshIcon, GoogleIcon } from '@/components/icons'
 import { isMobileDevice } from '@/lib/device'
@@ -30,10 +30,6 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
   const [batchStart, setBatchStart] = useState(0)
   const [adding, setAdding] = useState(false)
 
-  // Reset the re-entrancy guard after each completed open so the next button tap works.
-  useEffect(() => {
-    setAdding(false)
-  }, [addedIds])
 
   if (events.length === 0) {
     return (
@@ -67,7 +63,7 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
   const toggle = (id: number) => {
     setSelected(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
@@ -80,8 +76,8 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
       // Mobile: open the first event immediately within the user gesture so the
       // OS deep-links to the Calendar app. Remaining events are queued for
       // sequential taps — each tap is its own gesture, avoiding popup blocking.
-      // setAdding(true) disables the button until addedIds settles (via useEffect).
-      setAdding(true)
+      // No setAdding needed: the CTA switches to "Add next event" after this
+      // render, so the "Add all" button is gone before the user can tap again.
       setBatchStart(addedIds.size)
       window.open(buildCalUrl(toOpen[0]), '_blank')
       setAddedIds(prev => new Set([...prev, toOpen[0].id]))
@@ -98,14 +94,13 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
           toOpen.forEach(e => next.delete(e.id))
           return next
         })
-        // setAdding(false) is handled by the useEffect on addedIds
+        setAdding(false)
       }, toOpen.length * 400)
     }
   }
 
   const handleAddNext = () => {
-    if (adding || pendingQueue.length === 0) return
-    setAdding(true)
+    if (pendingQueue.length === 0) return
     const ev = pendingQueue[0]
     // Direct user gesture → deep-links to Calendar app on mobile.
     window.open(buildCalUrl(ev), '_blank')
@@ -177,7 +172,6 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
           <button
             className="btn-gcal-base flex items-center justify-center gap-[10px] w-full bg-gcal text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold disabled:bg-ink-subtle disabled:cursor-not-allowed"
             onClick={handleAddNext}
-            disabled={adding}
           >
             <GoogleIcon />
             Add next event ({batchAdded + 1} of {batchTotal})
