@@ -25,8 +25,11 @@ function isRateLimited(ip: string): boolean {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Use the rightmost x-forwarded-for entry — Vercel appends the connecting IP
+  // there, so it cannot be spoofed by a client prepending fake IPs.
+  const forwarded = req.headers.get('x-forwarded-for')
   const ip =
-    req.headers.get('x-forwarded-for') ??
+    (forwarded ? forwarded.split(',').at(-1)?.trim() : null) ??
     req.headers.get('x-real-ip') ??
     'unknown'
 
@@ -46,14 +49,14 @@ export async function POST(req: NextRequest) {
   if (!isAcceptedType(file)) {
     return NextResponse.json({ ok: false, error: 'Unsupported file type' }, { status: 415 })
   }
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    return NextResponse.json({ ok: false, error: 'File too large (max 20 MB)' }, { status: 413 })
+  }
   if (!(await validateMagicBytes(file))) {
     return NextResponse.json(
       { ok: false, error: 'File content does not match its type' },
       { status: 415 },
     )
-  }
-  if (file.size > MAX_FILE_SIZE_BYTES) {
-    return NextResponse.json({ ok: false, error: 'File too large (max 20 MB)' }, { status: 413 })
   }
 
   try {

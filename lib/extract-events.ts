@@ -116,15 +116,16 @@ function buildCalString(date: string, time?: string, endDate?: string, endTime?:
     const endMinVal = parseInt(esm ?? '', 10)
     const ed = endDate ? endDate.replace(/-/g, '') : d
     if (isNaN(endHourVal) || isNaN(endMinVal) || endHourVal > 23 || endMinVal > 59) {
-      // Malformed endTime — default to one hour after start
-      const fallbackEndHour = String(hour + 1).padStart(2, '0')
-      end = `${ed}T${fallbackEndHour}${smPad}00`
+      // Malformed endTime — default to one hour after start, clamped to 23:59
+      const fallbackEndHour = Math.min(hour + 1, 23)
+      end = `${ed}T${String(fallbackEndHour).padStart(2, '0')}${hour >= 23 ? '59' : smPad}00`
     } else {
       end = `${ed}T${String(endHourVal).padStart(2, '0')}${String(endMinVal).padStart(2, '0')}00`
     }
   } else {
-    const endHour = String(hour + 1).padStart(2, '0')
-    end = `${d}T${endHour}${smPad}00`
+    // Clamp to 23:59 when start is at hour 23
+    const endHourVal = Math.min(hour + 1, 23)
+    end = `${d}T${String(endHourVal).padStart(2, '0')}${hour >= 23 ? '59' : smPad}00`
   }
 
   return `${start}/${end}`

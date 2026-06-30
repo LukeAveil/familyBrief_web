@@ -26,8 +26,7 @@ export function acceptedExtensionsLabel(): string {
 }
 
 export async function validateMagicBytes(file: File): Promise<boolean> {
-  const fullBuf = await file.arrayBuffer()
-  const bytes = new Uint8Array(fullBuf.slice(0, 12))
+  const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer())
 
   // PDF: %PDF
   if (

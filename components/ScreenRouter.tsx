@@ -50,14 +50,13 @@ export default function ScreenRouter() {
       const data = await res.json()
       if (data.ok) {
         navigate({ screen: 'results', filename: file.name, events: data.events })
-        abortRef.current = null
       } else {
         navigate({ screen: 'error', filename: file.name })
-        abortRef.current = null
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
       navigate({ screen: 'error', filename: file.name })
+    } finally {
       abortRef.current = null
     }
   }

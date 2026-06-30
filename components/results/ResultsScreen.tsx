@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { CalendarEvent } from '@/types'
 import { CalendarIcon, CheckIcon, RefreshIcon, GoogleIcon } from '@/components/icons'
+import { isMobileDevice } from '@/lib/device'
 import EventCard from './EventCard'
 
 interface ResultsScreenProps {
@@ -25,7 +26,14 @@ function buildCalUrl(ev: CalendarEvent): string {
 export default function ResultsScreen({ filename, events, onReset, compact }: ResultsScreenProps) {
   const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map(e => e.id)))
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set())
+  const [pendingQueue, setPendingQueue] = useState<CalendarEvent[]>([])
+  const [batchStart, setBatchStart] = useState(0)
   const [adding, setAdding] = useState(false)
+
+  // Reset the re-entrancy guard after each completed open so the next button tap works.
+  useEffect(() => {
+    setAdding(false)
+  }, [addedIds])
 
   if (events.length === 0) {
     return (
@@ -67,21 +75,57 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
   const handleAddAll = () => {
     const toOpen = events.filter(e => selected.has(e.id) && !addedIds.has(e.id))
     if (toOpen.length === 0) return
-    setAdding(true)
-    toOpen.forEach((ev, i) => setTimeout(() => window.open(buildCalUrl(ev), '_blank'), i * 400))
-    setTimeout(() => {
-      setAdding(false)
-      setAddedIds(prev => new Set([...prev, ...toOpen.map(e => e.id)]))
-      setSelected(prev => {
-        const next = new Set(prev)
-        toOpen.forEach(e => next.delete(e.id))
-        return next
-      })
-    }, toOpen.length * 400)
+
+    if (isMobileDevice()) {
+      // Mobile: open the first event immediately within the user gesture so the
+      // OS deep-links to the Calendar app. Remaining events are queued for
+      // sequential taps — each tap is its own gesture, avoiding popup blocking.
+      // setAdding(true) disables the button until addedIds settles (via useEffect).
+      setAdding(true)
+      setBatchStart(addedIds.size)
+      window.open(buildCalUrl(toOpen[0]), '_blank')
+      setAddedIds(prev => new Set([...prev, toOpen[0].id]))
+      setSelected(prev => { const next = new Set(prev); next.delete(toOpen[0].id); return next })
+      if (toOpen.length > 1) setPendingQueue(toOpen.slice(1))
+    } else {
+      // Desktop: stagger opens so the browser doesn't bundle them into one tab.
+      setAdding(true)
+      toOpen.forEach((ev, i) => setTimeout(() => window.open(buildCalUrl(ev), '_blank'), i * 400))
+      setTimeout(() => {
+        setAddedIds(prev => new Set([...prev, ...toOpen.map(e => e.id)]))
+        setSelected(prev => {
+          const next = new Set(prev)
+          toOpen.forEach(e => next.delete(e.id))
+          return next
+        })
+        // setAdding(false) is handled by the useEffect on addedIds
+      }, toOpen.length * 400)
+    }
   }
 
-  const allAdded = addedIds.size === events.length
+  const handleAddNext = () => {
+    if (adding || pendingQueue.length === 0) return
+    setAdding(true)
+    const ev = pendingQueue[0]
+    // Direct user gesture → deep-links to Calendar app on mobile.
+    window.open(buildCalUrl(ev), '_blank')
+    setAddedIds(prev => new Set([...prev, ev.id]))
+    setSelected(prev => { const next = new Set(prev); next.delete(ev.id); return next })
+    setPendingQueue(prev => prev.slice(1))
+  }
+
+  // Hide the CTA once the user has added at least one event and every remaining
+  // event is either already added or deliberately deselected (not just not-yet-added).
+  const allAdded =
+    addedIds.size > 0 &&
+    pendingQueue.length === 0 &&
+    events.every(e => addedIds.has(e.id) || !selected.has(e.id))
+
   const selCount = selected.size
+
+  // Progress within the current mobile batch (not the global addedIds count).
+  const batchAdded = addedIds.size - batchStart
+  const batchTotal = batchAdded + pendingQueue.length
 
   return (
     <div>
@@ -128,7 +172,18 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
       </div>
 
       {/* CTA */}
-      {!allAdded && (
+      {pendingQueue.length > 0 ? (
+        <div className="mb-[10px]">
+          <button
+            className="btn-gcal-base flex items-center justify-center gap-[10px] w-full bg-gcal text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold disabled:bg-ink-subtle disabled:cursor-not-allowed"
+            onClick={handleAddNext}
+            disabled={adding}
+          >
+            <GoogleIcon />
+            Add next event ({batchAdded + 1} of {batchTotal})
+          </button>
+        </div>
+      ) : !allAdded ? (
         <div className="mb-[10px]">
           {!multi ? (
             <a
@@ -156,7 +211,7 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
             </button>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Reset */}
       <button

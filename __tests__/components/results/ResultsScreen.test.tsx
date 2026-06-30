@@ -120,14 +120,16 @@ describe('ResultsScreen — adding a subset of events', () => {
     expect(screen.getByText('Added to Google Calendar')).toBeInTheDocument()
   })
 
-  it('keeps the Add CTA visible while events remain unadded', async () => {
+  it('hides the CTA after adding a subset when the rest are deliberately deselected', async () => {
     await renderAndAddFirst()
-    // CTA should still be present (event 2 not yet added)
-    expect(screen.getByRole('button', { name: /select events to add/i })).toBeInTheDocument()
+    // ev2 was deselected before the add — the component treats it as "user is done"
+    expect(
+      screen.queryByRole('button', { name: /add all \d+ events|add \d+ events?|select events to add/i }),
+    ).not.toBeInTheDocument()
   })
 })
 
-// ─── Adding all events ────────────────────────────────────────────────────────
+// ─── Adding all events (desktop) ─────────────────────────────────────────────
 
 describe('ResultsScreen — adding all events', () => {
   it('hides the Add CTA after all events are added', async () => {
@@ -140,6 +142,130 @@ describe('ResultsScreen — adding all events', () => {
     expect(
       screen.queryByRole('button', { name: /add all \d+ events|add \d+ events?|select events to add/i }),
     ).not.toBeInTheDocument()
+  })
+})
+
+// ─── Adding events on mobile ──────────────────────────────────────────────────
+
+const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'
+
+describe('ResultsScreen — mobile sequential add', () => {
+  const realUA = navigator.userAgent
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: MOBILE_UA, configurable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: realUA, configurable: true })
+  })
+
+  it('opens the first event immediately and shows an Add next event button', async () => {
+    const user = setupUser()
+    render(<ResultsScreen filename="letter.png" events={TWO_EVENTS} onReset={onReset} />)
+    await user.click(screen.getByRole('button', { name: /add all 2 events/i }))
+    expect(window.open).toHaveBeenCalledTimes(1)
+    expect(window.open).toHaveBeenCalledWith(
+      expect.stringContaining(encodeURIComponent(TWO_EVENTS[0].title)),
+      '_blank',
+    )
+    expect(screen.getByRole('button', { name: /add next event/i })).toBeInTheDocument()
+  })
+
+  it('opens the queued event on the next tap and hides the CTA when done', async () => {
+    const user = setupUser()
+    render(<ResultsScreen filename="letter.png" events={TWO_EVENTS} onReset={onReset} />)
+    await user.click(screen.getByRole('button', { name: /add all 2 events/i }))
+    await user.click(screen.getByRole('button', { name: /add next event/i }))
+    expect(window.open).toHaveBeenCalledTimes(2)
+    expect(window.open).toHaveBeenLastCalledWith(
+      expect.stringContaining(encodeURIComponent(TWO_EVENTS[1].title)),
+      '_blank',
+    )
+    expect(
+      screen.queryByRole('button', { name: /add (all \d+|\d+) events?|add next event|select events to add/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows progress in the Add next event button label', async () => {
+    const [, , thirdEvent] = MOCK_MULTIPLE
+    const THREE_EVENTS = [...TWO_EVENTS, thirdEvent]
+    const user = setupUser()
+    render(<ResultsScreen filename="letter.png" events={THREE_EVENTS} onReset={onReset} />)
+    await user.click(screen.getByRole('button', { name: /add all 3 events/i }))
+    // After first: "Add next event (2 of 3)"
+    expect(screen.getByRole('button', { name: /add next event \(2 of 3\)/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /add next event/i }))
+    // After second: "Add next event (3 of 3)"
+    expect(screen.getByRole('button', { name: /add next event \(3 of 3\)/i })).toBeInTheDocument()
+  })
+})
+
+// ─── iPad sequential add (desktop UA, maxTouchPoints > 0) ────────────────────
+
+const IPAD_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
+
+describe('ResultsScreen — iPad sequential add', () => {
+  const realUA = navigator.userAgent
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: IPAD_UA, configurable: true })
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: realUA, configurable: true })
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true })
+  })
+
+  it('uses the mobile sequential flow on iPad despite the desktop UA', async () => {
+    const user = setupUser()
+    render(<ResultsScreen filename="letter.png" events={TWO_EVENTS} onReset={onReset} />)
+    await user.click(screen.getByRole('button', { name: /add all 2 events/i }))
+    // Mobile path: only the first event opens immediately — no stagger setTimeout
+    expect(window.open).toHaveBeenCalledTimes(1)
+    expect(window.open).toHaveBeenCalledWith(
+      expect.stringContaining(encodeURIComponent(TWO_EVENTS[0].title)),
+      '_blank',
+    )
+    expect(screen.getByRole('button', { name: /add next event/i })).toBeInTheDocument()
+  })
+})
+
+// ─── Mobile batch progress label ──────────────────────────────────────────────
+
+describe('ResultsScreen — mobile batch progress label', () => {
+  const realUA = navigator.userAgent
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: MOBILE_UA, configurable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: realUA, configurable: true })
+  })
+
+  it('counts from 1 within the current batch even when a prior event was already added', async () => {
+    const [, , thirdEvent] = MOCK_MULTIPLE
+    const THREE_EVENTS = [...TWO_EVENTS, thirdEvent]
+    const user = setupUser()
+    render(<ResultsScreen filename="letter.png" events={THREE_EVENTS} onReset={onReset} />)
+
+    // Deselect ev2+ev3, add ev1 via the "Add 1 event" button (desktop path)
+    const [, secondToggle, thirdToggle] = screen.getAllByRole('button', { name: 'Deselect event' })
+    await user.click(secondToggle)
+    await user.click(thirdToggle)
+    await user.click(screen.getByRole('button', { name: /add 1 event/i }))
+    advanceTimers()
+
+    // Now re-select ev2 and ev3 and tap "Add 2 events" (mobile path)
+    for (const btn of screen.getAllByRole('button', { name: 'Select event' })) {
+      await user.click(btn)
+    }
+    await user.click(screen.getByRole('button', { name: /add 2 events/i }))
+
+    // Batch is 2 events — label should say "2 of 2", not "3 of 3"
+    expect(screen.getByRole('button', { name: /add next event \(2 of 2\)/i })).toBeInTheDocument()
   })
 })
 
