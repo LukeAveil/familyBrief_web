@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import type { CalendarEvent } from '@/types'
-import { CalendarIcon, CheckIcon, RefreshIcon, GoogleIcon } from '@/components/icons'
+import { CalendarIcon, CheckIcon, RefreshIcon, GoogleIcon, AppleIcon } from '@/components/icons'
 import { isMobileDevice } from '@/lib/device'
+import { encodeEvents } from '@/lib/ics'
 import EventCard from './EventCard'
 
 interface ResultsScreenProps {
@@ -23,6 +24,13 @@ function buildCalUrl(ev: CalendarEvent): string {
     `&details=${encodeURIComponent(ev.notes ?? '')}` +
     `&location=${encodeURIComponent(ev.location ?? '')}`
   )
+}
+
+// Apple Calendar / iCloud path: our /api/ics route returns a downloadable .ics
+// built from the same `cal` field the Google link uses. One file can carry many
+// events, so a multi-event "add all" is a single link.
+function buildIcsUrl(events: CalendarEvent[]): string {
+  return `/api/ics?e=${encodeEvents(events)}`
 }
 
 export default function ResultsScreen({ filename, summary, events, onReset, compact }: ResultsScreenProps) {
@@ -111,6 +119,19 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
     setPendingQueue(prev => prev.slice(1))
   }
 
+  // Apple path: the .ics bundles every selected-and-not-yet-added event, so one
+  // tap on the download link adds them all. This just records that they're added
+  // (the link itself triggers the download via the browser's default action).
+  const appleTargets = events.filter(e => selected.has(e.id) && !addedIds.has(e.id))
+  const markAppleAdded = (evs: CalendarEvent[]) => {
+    setAddedIds(prev => new Set([...prev, ...evs.map(e => e.id)]))
+    setSelected(prev => {
+      const next = new Set(prev)
+      evs.forEach(e => next.delete(e.id))
+      return next
+    })
+  }
+
   // Hide the CTA once the user has added at least one event and every remaining
   // event is either already added or deliberately deselected (not just not-yet-added).
   const allAdded =
@@ -153,7 +174,7 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
             <CheckIcon />
           </span>
           <div>
-            <p className="text-sm font-semibold text-success">Added to Google Calendar</p>
+            <p className="text-sm font-semibold text-success">Added to your calendar</p>
             <p className="text-xs text-ink-subtle mt-0.5">Check your calendar to confirm they appeared</p>
           </div>
         </div>
@@ -185,31 +206,63 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
           </button>
         </div>
       ) : !allAdded ? (
-        <div className="mb-[10px]">
+        <div className="flex flex-col gap-[10px] mb-[10px]">
           {!multi ? (
-            <a
-              className="btn-gcal-base flex items-center justify-center gap-[10px] w-full bg-gcal text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold"
-              href={buildCalUrl(events[0])}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setAddedIds(new Set([events[0].id]))}
-            >
-              <GoogleIcon />
-              Add to Google Calendar
-            </a>
+            <>
+              <a
+                className="btn-gcal-base flex items-center justify-center gap-[10px] w-full bg-gcal text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold"
+                href={buildCalUrl(events[0])}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setAddedIds(new Set([events[0].id]))}
+              >
+                <GoogleIcon />
+                Add to Google Calendar
+              </a>
+              <a
+                className="btn-apple-base flex items-center justify-center gap-[10px] w-full bg-apple text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold"
+                href={buildIcsUrl([events[0]])}
+                onClick={() => markAppleAdded([events[0]])}
+              >
+                <AppleIcon />
+                Add to Apple Calendar
+              </a>
+            </>
           ) : (
-            <button
-              className="btn-gcal-base flex items-center justify-center gap-[10px] w-full bg-gcal text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold disabled:bg-ink-subtle disabled:cursor-not-allowed"
-              onClick={handleAddAll}
-              disabled={selCount === 0 || adding}
-            >
-              <GoogleIcon />
-              {selCount === 0
-                ? 'Select events to add'
-                : selCount === events.length
-                  ? `Add all ${selCount} events`
-                  : `Add ${selCount} event${selCount !== 1 ? 's' : ''}`}
-            </button>
+            <>
+              <button
+                className="btn-gcal-base flex items-center justify-center gap-[10px] w-full bg-gcal text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold disabled:bg-ink-subtle disabled:cursor-not-allowed"
+                onClick={handleAddAll}
+                disabled={selCount === 0 || adding}
+              >
+                <GoogleIcon />
+                {selCount === 0
+                  ? 'Select events to add'
+                  : selCount === events.length
+                    ? `Add all ${selCount} events`
+                    : `Add ${selCount} event${selCount !== 1 ? 's' : ''}`}
+              </button>
+              {appleTargets.length > 0 ? (
+                <a
+                  className="btn-apple-base flex items-center justify-center gap-[10px] w-full bg-apple text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold"
+                  href={buildIcsUrl(appleTargets)}
+                  onClick={() => markAppleAdded(appleTargets)}
+                >
+                  <AppleIcon />
+                  {appleTargets.length === events.length
+                    ? `Add all ${appleTargets.length} to Apple Calendar`
+                    : `Add ${appleTargets.length} to Apple Calendar`}
+                </a>
+              ) : (
+                <button
+                  className="btn-apple-base flex items-center justify-center gap-[10px] w-full bg-apple text-white px-6 py-[15px] rounded-xl text-[16px] font-semibold disabled:bg-ink-subtle disabled:cursor-not-allowed"
+                  disabled
+                >
+                  <AppleIcon />
+                  Add to Apple Calendar
+                </button>
+              )}
+            </>
           )}
         </div>
       ) : null}

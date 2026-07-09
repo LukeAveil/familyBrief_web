@@ -38,7 +38,7 @@ describe('ResultsScreen — single event', () => {
     const user = setupUser()
     render(<ResultsScreen filename="letter.png" events={MOCK_SINGLE} onReset={onReset} />)
     await user.click(screen.getByRole('link', { name: /add to google calendar/i }))
-    expect(screen.getByText('Added to Google Calendar')).toBeInTheDocument()
+    expect(screen.getByText('Added to your calendar')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /add to google calendar/i })).not.toBeInTheDocument()
   })
 })
@@ -117,7 +117,7 @@ describe('ResultsScreen — adding a subset of events', () => {
 
   it('shows the success banner after adding', async () => {
     await renderAndAddFirst()
-    expect(screen.getByText('Added to Google Calendar')).toBeInTheDocument()
+    expect(screen.getByText('Added to your calendar')).toBeInTheDocument()
   })
 
   it('hides the CTA after adding a subset when the rest are deliberately deselected', async () => {
