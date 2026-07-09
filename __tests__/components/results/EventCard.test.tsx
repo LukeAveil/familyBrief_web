@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import EventCard from '@/components/results/EventCard'
+import type { CalendarEvent } from '@/types'
 import { MOCK_SINGLE } from '@/lib/mock-data'
 
 const EVENT = MOCK_SINGLE[0]
@@ -90,5 +91,34 @@ describe('EventCard — interaction', () => {
     const { user } = setup({ onToggle, selected: false })
     await user.click(screen.getByRole('button', { name: 'Select event' }))
     expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('EventCard — confidence flags', () => {
+  const withConfidence = (confidence: CalendarEvent['confidence']): CalendarEvent => ({
+    ...EVENT,
+    confidence,
+  })
+
+  it('shows no confidence flags and no uncertain class when every field is high', () => {
+    const { container } = render(<EventCard event={withConfidence({ title: 'high', datetime: 'high', location: 'high' })} />)
+    expect(screen.queryByLabelText(/confidence in/i)).not.toBeInTheDocument()
+    expect(container.querySelector('.event-card')).not.toHaveClass('uncertain')
+  })
+
+  it('flags a medium field with a Double-check label and the uncertain class', () => {
+    const { container } = render(<EventCard event={withConfidence({ title: 'high', datetime: 'medium', location: 'high' })} />)
+    const flag = screen.getByLabelText('Medium confidence in the date and time')
+    expect(flag).toHaveTextContent('Double-check')
+    const card = container.querySelector('.event-card')!
+    expect(card).toHaveClass('uncertain')
+    expect(card).not.toHaveClass('uncertain-low')
+  })
+
+  it('escalates a low field with a Low confidence label and the uncertain-low class', () => {
+    const { container } = render(<EventCard event={withConfidence({ title: 'low', datetime: 'high', location: 'high' })} />)
+    const flag = screen.getByLabelText('Low confidence in the event name')
+    expect(flag).toHaveTextContent(/low confidence/i)
+    expect(container.querySelector('.event-card')).toHaveClass('uncertain', 'uncertain-low')
   })
 })

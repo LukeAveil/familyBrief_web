@@ -217,7 +217,9 @@ describe('POST /api/upload — extraction (SSE)', () => {
     expect(typeof event.title).toBe('string')
     expect(typeof event.date).toBe('string')
     expect(typeof event.cal).toBe('string')
-    expect(['high', 'medium']).toContain(event.confidence)
+    // Per-field confidence: title and datetime always present, each a valid level.
+    expect(['high', 'medium', 'low']).toContain(event.confidence.title)
+    expect(['high', 'medium', 'low']).toContain(event.confidence.datetime)
   })
 })
 

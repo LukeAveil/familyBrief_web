@@ -70,6 +70,7 @@ describe('extractEventsFromFile', () => {
       location: 'Playing Fields',
       description: 'Wear PE kit',
       category: 'school',
+      confidence: { title: 'high', datetime: 'high', location: 'high' },
     }]))
 
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
@@ -79,7 +80,42 @@ describe('extractEventsFromFile', () => {
     expect(event.time).toBe('9:30 AM – 12:00 PM')
     expect(event.location).toBe('Playing Fields')
     expect(event.notes).toBe('Wear PE kit')
-    expect(event.confidence).toBe('high')
+    expect(event.confidence).toEqual({ title: 'high', datetime: 'high', location: 'high' })
+  })
+
+  it('passes the model-assessed per-field confidence through', async () => {
+    mockResponse(JSON.stringify([{
+      title: 'Bake Sale',
+      date: '2025-06-26',
+      location: 'the hall',
+      category: 'social',
+      confidence: { title: 'high', datetime: 'medium', location: 'low' },
+    }]))
+    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
+    expect(event.confidence).toEqual({ title: 'high', datetime: 'medium', location: 'low' })
+  })
+
+  it('defaults missing/invalid confidence fields to medium (honest fallback)', async () => {
+    mockResponse(JSON.stringify([{
+      title: 'Mystery Event',
+      date: '2025-06-26',
+      category: 'other',
+      confidence: { title: 'bogus' },
+    }]))
+    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
+    // No location on the event → no location confidence key.
+    expect(event.confidence).toEqual({ title: 'medium', datetime: 'medium' })
+  })
+
+  it('omits location confidence when the event has no location', async () => {
+    mockResponse(JSON.stringify([{
+      title: 'Assembly',
+      date: '2025-06-26',
+      category: 'school',
+      confidence: { title: 'high', datetime: 'high', location: 'high' },
+    }]))
+    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
+    expect(event.confidence.location).toBeUndefined()
   })
 
   it('assigns sequential ids starting from 1', async () => {
@@ -96,7 +132,6 @@ describe('extractEventsFromFile', () => {
     mockResponse(JSON.stringify([{ title: 'Last Day', date: '2025-07-18', category: 'school' }]))
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.time).toBeNull()
-    expect(event.confidence).toBe('medium')
   })
 
   it('produces a null location when not present', async () => {
@@ -144,18 +179,6 @@ describe('extractEventsFromFile', () => {
     }]))
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.cal).toMatch(/^20250626\/20250627$/)
-  })
-
-  it('assigns medium confidence to events with no time, description, or location', async () => {
-    mockResponse(JSON.stringify([{ title: 'Sparse Event', date: '2025-06-01', category: 'school' }]))
-    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
-    expect(event.confidence).toBe('medium')
-  })
-
-  it('assigns high confidence to events with a time', async () => {
-    mockResponse(JSON.stringify([{ title: 'Timed Event', date: '2025-06-01', time: '09:00', category: 'school' }]))
-    const [event] = await extractEventsFromFile('base64data', 'application/pdf')
-    expect(event.confidence).toBe('high')
   })
 
   it('falls back to one hour after start when endTime is malformed', async () => {
@@ -209,7 +232,13 @@ describe('streamEventsFromFile', () => {
   beforeEach(() => mockStream.mockReset())
 
   const EVENT_JSON = JSON.stringify([
-    { title: 'Sports Day', date: '2025-06-26', time: '09:30', category: 'school' },
+    {
+      title: 'Sports Day',
+      date: '2025-06-26',
+      time: '09:30',
+      category: 'school',
+      confidence: { title: 'high', datetime: 'high' },
+    },
   ])
 
   it('streams the summary then yields a terminal result with mapped events', async () => {
@@ -231,7 +260,7 @@ describe('streamEventsFromFile', () => {
     expect(r.summary).toBe('Summary here.')
     expect(r.events).toHaveLength(1)
     expect(r.events[0].title).toBe('Sports Day')
-    expect(r.events[0].confidence).toBe('high')
+    expect(r.events[0].confidence).toEqual({ title: 'high', datetime: 'high' })
   })
 
   it('never leaks a delimiter that straddles two token chunks', async () => {

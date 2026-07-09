@@ -1,7 +1,7 @@
 'use client'
 
-import type { CalendarEvent } from '@/types'
-import { CalendarIcon, ClockIcon, PinIcon, InfoIcon } from '@/components/icons'
+import type { CalendarEvent, ConfidenceLevel } from '@/types'
+import { CalendarIcon, ClockIcon, PinIcon, InfoIcon, AlertIcon } from '@/components/icons'
 
 interface EventCardProps {
   event: CalendarEvent
@@ -11,14 +11,59 @@ interface EventCardProps {
   compact?: boolean
 }
 
+/**
+ * Inline flag that makes a field's model-assessed confidence visible. `high`
+ * renders nothing (the default, trusted look). `medium` and `low` get a small
+ * pill escalating from amber to red, each carrying an icon AND a text label so
+ * the meaning never depends on colour alone. `field` names what is uncertain so
+ * the short label reads unambiguously next to the value it sits beside.
+ */
+function ConfidenceFlag({ level, field }: { level: ConfidenceLevel; field: string }) {
+  if (level === 'high') return null
+
+  const isLow = level === 'low'
+  const label = isLow ? 'Low confidence — verify' : 'Double-check'
+  const tone = isLow
+    ? 'text-error bg-error-light border-error-line'
+    : 'text-amber bg-amber-light border-amber-line'
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 align-middle text-[11px] ${tone} border rounded-full px-2 py-[2px] ml-2`}
+      aria-label={`${isLow ? 'Low' : 'Medium'} confidence in the ${field}`}
+    >
+      <span className="w-[11px] h-[11px] flex">
+        {isLow ? <AlertIcon /> : <InfoIcon />}
+      </span>
+      {label}
+    </span>
+  )
+}
+
 export default function EventCard({ event, selected, onToggle, calendarAdded, compact }: EventCardProps) {
+  const { confidence } = event
+
+  // Worst confidence across the present fields drives the card-level cue, so a
+  // parent can spot which cards need a second look while scanning the list.
+  const levels: ConfidenceLevel[] = [
+    confidence.title,
+    confidence.datetime,
+    ...(confidence.location ? [confidence.location] : []),
+  ]
+  const worst: ConfidenceLevel = levels.includes('low')
+    ? 'low'
+    : levels.includes('medium')
+      ? 'medium'
+      : 'high'
+
   const cardClass = [
     'event-card',
     'bg-surface border-[1.5px] border-line rounded-xl relative shadow-sm',
     compact ? 'p-[14px_16px]' : 'p-5',
     (onToggle || calendarAdded) ? 'pr-[52px]' : '',
     selected ? 'selected' : '',
-    event.confidence === 'medium' ? 'uncertain' : '',
+    worst !== 'high' ? 'uncertain' : '',
+    worst === 'low' ? 'uncertain-low' : '',
   ].filter(Boolean).join(' ')
 
   return (
@@ -58,15 +103,8 @@ export default function EventCard({ event, selected, onToggle, calendarAdded, co
         <div>
           <h3 className="text-[17px] font-semibold tracking-[-0.2px] leading-[1.3] text-ink">
             {event.title}
+            <ConfidenceFlag level={confidence.title} field="event name" />
           </h3>
-          {event.confidence === 'medium' && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-amber bg-amber-light border border-amber-line rounded-full px-2 py-[2px] mt-[5px]">
-              <span className="w-[11px] h-[11px] flex">
-                <InfoIcon />
-              </span>
-              Please verify the date
-            </span>
-          )}
         </div>
       </div>
 
@@ -76,7 +114,12 @@ export default function EventCard({ event, selected, onToggle, calendarAdded, co
           <dt className="w-4 h-4 shrink-0 mt-[1px] text-ink-subtle flex">
             <CalendarIcon />
           </dt>
-          <dd className="min-w-0 flex-1">{event.date}</dd>
+          <dd className="min-w-0 flex-1">
+            {event.date}
+            {/* The date/time confidence sits on the date row and covers both,
+                since the model assesses them as one field. */}
+            <ConfidenceFlag level={confidence.datetime} field="date and time" />
+          </dd>
         </div>
         {event.time && (
           <div className="flex items-start gap-2 text-sm text-ink-muted min-w-0">
@@ -91,7 +134,10 @@ export default function EventCard({ event, selected, onToggle, calendarAdded, co
             <dt className="w-4 h-4 shrink-0 mt-[1px] text-ink-subtle flex">
               <PinIcon />
             </dt>
-            <dd className="min-w-0 flex-1">{event.location}</dd>
+            <dd className="min-w-0 flex-1">
+              {event.location}
+              {confidence.location && <ConfidenceFlag level={confidence.location} field="location" />}
+            </dd>
           </div>
         )}
       </dl>

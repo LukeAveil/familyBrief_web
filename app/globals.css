@@ -166,7 +166,14 @@
     border-color: var(--color-primary);
     box-shadow: 0 0 0 3px var(--color-primary-light), var(--shadow-sm);
   }
+  /* Any non-high field dashes the border to say "give this a second look". */
   .event-card.uncertain { border-style: dashed; }
+  /* A low-confidence field escalates further: a red-tinted dashed border so the
+     card stands out from merely medium ones while scanning the list. */
+  .event-card.uncertain-low {
+    border-color: var(--color-error-line);
+    background-color: color-mix(in srgb, var(--color-error-light) 45%, var(--color-surface));
+  }
 
   /* Checkbox fill */
   .check-box { transition: background 150ms, border-color 150ms; }
