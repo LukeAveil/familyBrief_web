@@ -1,34 +1,25 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { CheckIcon } from '@/components/icons'
-
-const MSGS = [
-  'Scanning your document…',
-  'Looking for dates and times…',
-  'Reading event details…',
-  'Finishing up…',
-]
-
-const TOTAL_MS = 9000
-const MAX_PROGRESS = 80
+/**
+ * ProcessingScreen — the "reading your letter" view.
+ *
+ * Purely presentational and prop-driven: it just renders whatever summary text
+ * ScreenRouter has accumulated so far. There is no timer or fake progress — the
+ * text growing IS the progress, straight from the model stream. Events are never
+ * shown here; they arrive only on the terminal `done` frame and render on the
+ * results screen, so nothing actionable appears while the stream is mid-flight.
+ */
 
 interface ProcessingScreenProps {
   filename: string
+  /** Summary text as it streams in from the server (empty until the first token). */
+  summary: string
 }
 
-export default function ProcessingScreen({ filename }: ProcessingScreenProps) {
-  const [step, setStep] = useState(0)
-  const [progress, setProgress] = useState(5)
-
-  useEffect(() => {
-    const timers = MSGS.slice(1).map((_, i) => {
-      const ms = Math.round(TOTAL_MS * (i + 1) / MSGS.length)
-      const p  = Math.round(MAX_PROGRESS * (i + 1) / (MSGS.length - 1))
-      return setTimeout(() => { setStep(i + 1); setProgress(p) }, ms)
-    })
-    return () => timers.forEach(clearTimeout)
-  }, [])
+export default function ProcessingScreen({ filename, summary }: ProcessingScreenProps) {
+  // Before any tokens arrive, show a gentle placeholder so there's no empty flash;
+  // once text starts streaming we render it live with a blinking caret.
+  const streaming = summary.length > 0
 
   return (
     <div className="flex flex-col items-center">
@@ -57,36 +48,20 @@ export default function ProcessingScreen({ filename }: ProcessingScreenProps) {
           {filename}
         </p>
 
-        {/* Step messages */}
-        <div className="flex flex-col gap-[7px] text-left mb-5">
-          {MSGS.map((msg, i) => {
-            const state = i < step ? 'done' : i === step ? 'active' : 'pending'
-            return (
-              <div key={i} className={`proc-msg ${state} flex items-center gap-2 text-[13px]`}>
-                <span className="w-4 h-4 shrink-0 flex items-center justify-center">
-                  {state === 'done' ? (
-                    <span className="text-success w-4 h-4 flex">
-                      <CheckIcon />
-                    </span>
-                  ) : (
-                    <span className="w-[6px] h-[6px] rounded-full bg-current block" />
-                  )}
-                </span>
-                {msg}
-              </div>
-            )
-          })}
-        </div>
+        {/* Live summary — types out token by token as the server streams it. The
+            events themselves are held back until extraction completes, so nothing
+            actionable is shown here. */}
+        <p className="text-[14px] leading-relaxed text-ink text-left min-h-[3.5em] whitespace-pre-wrap">
+          {streaming ? (
+            <>
+              {summary}
+              <span className="proc-caret" aria-hidden>▋</span>
+            </>
+          ) : (
+            <span className="text-ink-subtle">Scanning your document…</span>
+          )}
+        </p>
 
-        {/* Progress bar */}
-        <div className="h-1 bg-primary-light rounded-sm overflow-hidden mb-3">
-          <div
-            className="h-full bg-primary rounded-sm"
-            style={{ width: `${progress}%`, transition: 'width 600ms ease' }}
-          />
-        </div>
-
-        <p className="text-xs text-ink-subtle">Usually takes about 10 seconds</p>
       </div>
     </div>
   )

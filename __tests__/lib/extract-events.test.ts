@@ -3,15 +3,22 @@
  */
 
 const mockCreate = jest.fn()
+const mockStream = jest.fn()
 
 jest.mock('@anthropic-ai/sdk', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
-    messages: { create: mockCreate },
+    messages: { create: mockCreate, stream: mockStream },
   })),
 }))
 
-import { extractEventsFromFile } from '@/lib/extract-events'
+import {
+  extractEventsFromFile,
+  streamEventsFromFile,
+  splitOnDelimiter,
+  EVENTS_DELIMITER,
+  type StreamChunk,
+} from '@/lib/extract-events'
 
 function mockResponse(text: string) {
   mockCreate.mockResolvedValueOnce({
@@ -19,6 +26,24 @@ function mockResponse(text: string) {
     usage: { input_tokens: 10, output_tokens: 20 },
     stop_reason: 'end_turn',
   })
+}
+
+// A fake MessageStream: async-iterable yielding text_delta events for each of the
+// given chunk strings, exactly the shape streamEventsFromFile consumes.
+function fakeStream(chunks: string[]) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const text of chunks) {
+        yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }
+      }
+    },
+  }
+}
+
+async function drain(gen: AsyncGenerator<StreamChunk>): Promise<StreamChunk[]> {
+  const out: StreamChunk[] = []
+  for await (const chunk of gen) out.push(chunk)
+  return out
 }
 
 describe('extractEventsFromFile', () => {
@@ -156,5 +181,103 @@ describe('extractEventsFromFile', () => {
     }]))
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.cal).toBe('20250626T090500/20250626T094500')
+  })
+})
+
+describe('splitOnDelimiter', () => {
+  it('splits summary from JSON when the delimiter is present', () => {
+    const [summary, json] = splitOnDelimiter(`A summary.\n${EVENTS_DELIMITER}\n[]`)
+    expect(summary).toBe('A summary.\n')
+    expect(json.trim()).toBe('[]')
+  })
+
+  it('treats the whole response as JSON when the delimiter is absent', () => {
+    // Keeps the non-streaming path (and its pure-JSON mocks) working unchanged.
+    const [summary, json] = splitOnDelimiter('[]')
+    expect(summary).toBe('')
+    expect(json).toBe('[]')
+  })
+
+  it('yields an empty summary when the delimiter is at the very start', () => {
+    const [summary, json] = splitOnDelimiter(`${EVENTS_DELIMITER}[1,2]`)
+    expect(summary).toBe('')
+    expect(json).toBe('[1,2]')
+  })
+})
+
+describe('streamEventsFromFile', () => {
+  beforeEach(() => mockStream.mockReset())
+
+  const EVENT_JSON = JSON.stringify([
+    { title: 'Sports Day', date: '2025-06-26', time: '09:30', category: 'school' },
+  ])
+
+  it('streams the summary then yields a terminal result with mapped events', async () => {
+    mockStream.mockImplementationOnce(() =>
+      fakeStream([`Summary here.\n`, `${EVENTS_DELIMITER}\n`, EVENT_JSON]),
+    )
+
+    const chunks = await drain(streamEventsFromFile('b64', 'application/pdf'))
+    const deltas = chunks.filter(c => c.type === 'summary_delta')
+    const result = chunks.find(c => c.type === 'result')
+
+    // Only the pre-delimiter prose is streamed as summary.
+    expect(deltas.map(c => (c as { text: string }).text).join('')).toBe('Summary here.\n')
+    // The delimiter itself never leaks into a summary delta.
+    for (const d of deltas) expect((d as { text: string }).text).not.toContain('<')
+
+    expect(result).toBeTruthy()
+    const r = result as Extract<StreamChunk, { type: 'result' }>
+    expect(r.summary).toBe('Summary here.')
+    expect(r.events).toHaveLength(1)
+    expect(r.events[0].title).toBe('Sports Day')
+    expect(r.events[0].confidence).toBe('high')
+  })
+
+  it('never leaks a delimiter that straddles two token chunks', async () => {
+    // The delimiter is split across the chunk boundary: "…<<<EVE" | "NTS_JSON>>>…".
+    // The hold-back guard must ensure no fragment ('<') reaches the client.
+    mockStream.mockImplementationOnce(() =>
+      fakeStream(['This letter has news.\n<<<EVE', 'NTS_JSON>>>\n[]']),
+    )
+
+    const chunks = await drain(streamEventsFromFile('b64', 'application/pdf'))
+    const summary = chunks
+      .filter(c => c.type === 'summary_delta')
+      .map(c => (c as { text: string }).text)
+      .join('')
+
+    expect(summary).toBe('This letter has news.\n')
+    expect(summary).not.toContain('<')
+    const result = chunks.find(c => c.type === 'result') as Extract<StreamChunk, { type: 'result' }>
+    expect(result.events).toEqual([])
+  })
+
+  it('still parses events when the model omits the delimiter (compliance edge)', async () => {
+    // A missing delimiter is a model-compliance edge: the whole response is treated
+    // as JSON, so events remain correct even though there is no clean summary.
+    mockStream.mockImplementationOnce(() => fakeStream([EVENT_JSON]))
+
+    const chunks = await drain(streamEventsFromFile('b64', 'application/pdf'))
+    const result = chunks.find(c => c.type === 'result') as Extract<StreamChunk, { type: 'result' }>
+    expect(result.summary).toBe('')
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0].title).toBe('Sports Day')
+  })
+
+  it('propagates an error thrown mid-stream (route wraps this in an error frame)', async () => {
+    mockStream.mockImplementationOnce(() => ({
+      async *[Symbol.asyncIterator]() { throw new Error('rate limited') },
+    }))
+    await expect(drain(streamEventsFromFile('b64', 'application/pdf')))
+      .rejects.toThrow('rate limited')
+  })
+
+  it('throws a descriptive error when the JSON after the delimiter is invalid', async () => {
+    mockStream.mockImplementationOnce(() =>
+      fakeStream([`Summary.\n${EVENTS_DELIMITER}\nnot json`]),
+    )
+    await expect(drain(streamEventsFromFile('b64', 'application/pdf')))
+      .rejects.toThrow(/invalid JSON/i)
   })
 })
