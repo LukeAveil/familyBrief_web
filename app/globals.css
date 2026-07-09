@@ -85,6 +85,9 @@
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+@keyframes caretBlink {
+  50% { opacity: 0; }
+}
 
 /* ── BASE ────────────────────────────────────────────────── */
 @layer base {
@@ -150,11 +153,12 @@
   /* Document pulse */
   .proc-doc { animation: docPulse 2.5s ease-in-out infinite; }
 
-  /* Processing step message states */
-  .proc-msg { transition: opacity 300ms, color 300ms; }
-  .proc-msg.pending { opacity: .4; color: var(--color-ink-subtle); }
-  .proc-msg.active  { opacity: 1;  color: var(--color-ink); font-weight: 500; }
-  .proc-msg.done    { opacity: 1;  color: var(--color-success); }
+  /* Blinking caret shown while the summary streams in */
+  .proc-caret {
+    color: var(--color-primary);
+    animation: caretBlink 1s step-end infinite;
+    margin-inline-start: 1px;
+  }
 
   /* Event card selection states */
   .event-card { transition: border-color 200ms, box-shadow 200ms; }

@@ -8,6 +8,8 @@ import EventCard from './EventCard'
 
 interface ResultsScreenProps {
   filename: string
+  /** The human-readable summary that streamed in on the processing screen. */
+  summary?: string
   events: CalendarEvent[]
   onReset: () => void
   compact?: boolean
@@ -23,7 +25,7 @@ function buildCalUrl(ev: CalendarEvent): string {
   )
 }
 
-export default function ResultsScreen({ filename, events, onReset, compact }: ResultsScreenProps) {
+export default function ResultsScreen({ filename, summary, events, onReset, compact }: ResultsScreenProps) {
   const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map(e => e.id)))
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set())
   const [pendingQueue, setPendingQueue] = useState<CalendarEvent[]>([])
@@ -124,6 +126,11 @@ export default function ResultsScreen({ filename, events, onReset, compact }: Re
 
   return (
     <div>
+      {/* The finished summary the parent watched type out on the processing screen. */}
+      {summary && (
+        <p className="text-[14px] leading-relaxed text-ink-muted mb-5">{summary}</p>
+      )}
+
       {/* Results header */}
       <div className="flex items-center gap-[14px] mb-5">
         <div className="w-11 h-11 rounded-full bg-success-light text-success flex items-center justify-center shrink-0">

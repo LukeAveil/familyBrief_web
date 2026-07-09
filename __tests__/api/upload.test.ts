@@ -3,19 +3,22 @@
  */
 
 // Mock the Anthropic SDK so extract-events.ts never makes real API calls.
-// The mock is declared before imports so it is registered before any module loads.
-const mockCreate = jest.fn()
+// The upload route now streams via messages.stream(), so we mock that.
+const mockStream = jest.fn()
 
 jest.mock('@anthropic-ai/sdk', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
-    messages: { create: mockCreate },
+    messages: { stream: mockStream },
   })),
 }))
 
 import { NextRequest } from 'next/server'
 import { POST } from '@/app/api/upload/route'
 import { MAX_FILE_SIZE_BYTES } from '@/lib/file-config'
+import { EVENTS_DELIMITER } from '@/lib/extract-events'
+
+beforeEach(() => mockStream.mockReset())
 
 // Provide a dummy API key so the env-var guard in getClient() doesn't throw.
 // The Anthropic SDK itself is mocked above so no real key is needed.
@@ -67,12 +70,41 @@ const MOCK_EVENTS_JSON = JSON.stringify([{
   category: 'school',
 }])
 
-function mockSuccess() {
-  mockCreate.mockResolvedValueOnce({
-    content: [{ type: 'text', text: MOCK_EVENTS_JSON }],
-    usage: { input_tokens: 10, output_tokens: 50 },
-    stop_reason: 'end_turn',
-  })
+// The model's full response: a summary, the delimiter, then the JSON array —
+// the shape streamEventsFromFile splits on.
+const MOCK_FULL_TEXT = `Here is a quick summary of what I found.\n${EVENTS_DELIMITER}\n${MOCK_EVENTS_JSON}`
+
+// A fake MessageStream: async-iterable yielding text_delta events. Emitting the
+// text in two chunks exercises the incremental delimiter-splitting logic.
+function fakeStream(text: string) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const mid = Math.floor(text.length / 2)
+      yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(0, mid) } }
+      yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(mid) } }
+    },
+  }
+}
+
+function mockSuccess(text = MOCK_FULL_TEXT) {
+  mockStream.mockImplementationOnce(() => fakeStream(text))
+}
+
+// Read an SSE Response body to completion and return its parsed frames.
+async function collectSSE(res: Response): Promise<{ event: string; data: string }[]> {
+  const body = await res.text()
+  return body
+    .split('\n\n')
+    .filter(Boolean)
+    .map(raw => {
+      let event = 'message'
+      const data: string[] = []
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+      }
+      return { event, data: data.join('\n') }
+    })
 }
 
 // ─── Validation tests ─────────────────────────────────────────────────────────
@@ -127,44 +159,59 @@ describe('POST /api/upload — validation', () => {
 
 // ─── Extraction tests ─────────────────────────────────────────────────────────
 
-describe('POST /api/upload — extraction', () => {
-  beforeEach(() => { jest.restoreAllMocks() })
-
-  it('returns ok:true with filename and events for a valid PDF', async () => {
+describe('POST /api/upload — extraction (SSE)', () => {
+  it('streams a summary then a done frame with events for a valid PDF', async () => {
     mockSuccess()
     const fd = makeFormData(makePdf())
     const res = await POST(makeRequest(fd))
     expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.ok).toBe(true)
-    expect(body.filename).toBe('letter.pdf')
-    expect(Array.isArray(body.events)).toBe(true)
-    expect(body.events.length).toBeGreaterThan(0)
+    expect(res.headers.get('content-type')).toContain('text/event-stream')
+
+    const frames = await collectSSE(res)
+    // Summary streamed as one or more delta frames…
+    const summary = frames.filter(f => f.event === 'delta').map(f => JSON.parse(f.data).text).join('')
+    expect(summary).toContain('summary of what I found')
+    // …and the terminal done frame carries the parsed events (never partial JSON).
+    const done = frames.find(f => f.event === 'done')
+    expect(done).toBeTruthy()
+    const data = JSON.parse(done!.data)
+    expect(Array.isArray(data.events)).toBe(true)
+    expect(data.events.length).toBeGreaterThan(0)
+    expect(typeof data.summary).toBe('string')
   })
 
-  it('returns ok:true for a valid JPEG', async () => {
+  it('streams successfully for a valid JPEG', async () => {
     mockSuccess()
     const fd = makeFormData(makeJpeg())
     const res = await POST(makeRequest(fd))
     expect(res.status).toBe(200)
-    expect((await res.json()).ok).toBe(true)
+    const frames = await collectSSE(res)
+    expect(frames.some(f => f.event === 'done')).toBe(true)
   })
 
-  it('returns ok:false with status 500 when the Anthropic API throws', async () => {
+  it('emits an in-band, sanitized error frame when the Anthropic stream throws', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {})
-    mockCreate.mockRejectedValueOnce(new Error('rate limited'))
+    mockStream.mockImplementationOnce(() => ({
+      async *[Symbol.asyncIterator]() { throw new Error('rate limited') },
+    }))
     const fd = makeFormData(makePdf())
     const res = await POST(makeRequest(fd))
-    expect(res.status).toBe(500)
-    const body = await res.json()
-    expect(body.ok).toBe(false)
-    expect(body.error).toBe('Extraction failed. Please try again.')
+    // Headers are already committed to 200 — the error is delivered in-band.
+    expect(res.status).toBe(200)
+    const frames = await collectSSE(res)
+    const errFrame = frames.find(f => f.event === 'error')
+    expect(errFrame).toBeTruthy()
+    expect(JSON.parse(errFrame!.data).message).toBe('Extraction failed. Please try again.')
+    // The raw SDK error text must never leak to the client.
+    expect(errFrame!.data).not.toContain('rate limited')
+    ;(console.error as jest.Mock).mockRestore()
   })
 
-  it('each event in the response has the expected CalendarEvent shape', async () => {
+  it('each streamed event has the expected CalendarEvent shape', async () => {
     mockSuccess()
     const fd = makeFormData(makePdf())
-    const { events } = await (await POST(makeRequest(fd))).json()
+    const frames = await collectSSE(await POST(makeRequest(fd)))
+    const { events } = JSON.parse(frames.find(f => f.event === 'done')!.data)
     const [event] = events
     expect(typeof event.id).toBe('number')
     expect(typeof event.title).toBe('string')

@@ -1,7 +1,40 @@
+/**
+ * Event extraction — the model-facing layer.
+ * ────────────────────────────────────────────────────────────────────────────
+ * A school letter produces TWO things from a single Claude call:
+ *   1. a short human-readable SUMMARY — safe to show as it streams in, and
+ *   2. a structured JSON array of EVENTS — *actionable* (a parent taps "add to
+ *      calendar"), so we must never surface a half-formed one.
+ *
+ * We get both from one request by asking Claude to write the summary, then a
+ * delimiter (EVENTS_DELIMITER), then the JSON. That ordering is what lets us
+ * stream the safe half live while holding the actionable half back until it's
+ * fully parsed. See `buildPrompt` for the instruction and `streamEventsFromFile`
+ * for the split.
+ *
+ * Where this sits in the pipeline:
+ *   file → Claude (stream) → streamEventsFromFile → app/api/upload (SSE)
+ *        → components/ScreenRouter (reads SSE) → Processing / Results screens
+ *
+ * Exports:
+ *   - streamEventsFromFile  — streaming path used by the upload route.
+ *   - extractEventsFromFile — non-streaming convenience (whole result at once).
+ *   - splitOnDelimiter / EVENTS_DELIMITER — the summary|JSON boundary, shared so
+ *     the streamer, the non-streaming path, and the tests all agree on it.
+ */
+
 import Anthropic from '@anthropic-ai/sdk'
 import type { CalendarEvent } from '@/types'
 
 const MODEL = 'claude-sonnet-4-6'
+// Bumped from 1024 → 2048 to leave room for the streamed summary prose that now
+// precedes the JSON array (the event payload itself is small).
+const MAX_TOKENS = 2048
+
+// Sentinel the model writes between the human-readable summary and the JSON
+// array. Exported so the streaming splitter and tests share one source of truth.
+// Chosen to be distinctive enough that it will never appear in a real summary.
+export const EVENTS_DELIMITER = '<<<EVENTS_JSON>>>'
 
 // Lazy client — created on first use so importing this module never throws
 // even when ANTHROPIC_API_KEY is absent (e.g. in tests that mock the SDK).
@@ -26,7 +59,13 @@ Look at this document and extract ALL events, deadlines, and important dates.
 
 Today's date is ${today}.
 
-For each event found, extract:
+Respond in TWO parts, in this exact order:
+
+PART 1 — A short, friendly summary for the parent (2-3 sentences) describing what this document is and what you found: how many events there are and the kinds of things coming up. Write in plain, warm language. No markdown, no bullet points, no headings.
+
+PART 2 — On a new line, write exactly ${EVENTS_DELIMITER} and then, after it, output ONLY a valid JSON array of the events. No preamble, no explanation, no markdown code fences.
+
+For each event, extract:
 - title: clear, concise event name
 - date: YYYY-MM-DD format. If the year is not shown: use the current year if the month/day falls on or after today; only use next year if the date has already passed this year.
 - endDate: YYYY-MM-DD if multi-day (optional)
@@ -36,8 +75,21 @@ For each event found, extract:
 - description: any important details parents need to know (optional)
 - category: one of school|activity|medical|social|other
 
-Respond ONLY with a valid JSON array. No preamble, no explanation.
-If no events are found, return an empty array [].`
+If no events are found, still write a brief summary, then ${EVENTS_DELIMITER} followed by an empty array [].`
+}
+
+/**
+ * Split the model's raw output into the human-readable summary (before the
+ * delimiter) and the JSON payload (after it). When the delimiter is absent —
+ * e.g. the model omits it, or a caller uses an older prompt — the whole
+ * response is treated as the JSON payload and the summary is empty. That keeps
+ * the non-streaming path (and its tests, which mock pure-JSON responses)
+ * working unchanged.
+ */
+export function splitOnDelimiter(raw: string): [summary: string, json: string] {
+  const at = raw.indexOf(EVENTS_DELIMITER)
+  if (at === -1) return ['', raw]
+  return [raw.slice(0, at), raw.slice(at + EVENTS_DELIMITER.length)]
 }
 
 // ─── Extracted shape (matches what Claude returns) ──────────────────────────
@@ -147,16 +199,9 @@ function toCalendarEvent(event: ExtractedEvent, id: number): CalendarEvent {
   }
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────────
+// ─── Request building & parsing (shared by streaming and non-streaming) ───────
 
-/**
- * Extract calendar events from a base64-encoded file using Claude.
- * Throws on API errors; returns an empty array when no events are found.
- */
-export async function extractEventsFromFile(
-  base64: string,
-  mimeType: string,
-): Promise<CalendarEvent[]> {
+function buildContent(base64: string, mimeType: string): Anthropic.MessageParam['content'] {
   const isPdf = mimeType.includes('pdf')
 
   const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
@@ -165,7 +210,7 @@ export async function extractEventsFromFile(
     ? (mimeType as ValidImageType)
     : 'image/jpeg'
 
-  const content: Anthropic.MessageParam['content'] = isPdf
+  return isPdf
     ? [
         {
           type: 'document',
@@ -180,20 +225,13 @@ export async function extractEventsFromFile(
         },
         { type: 'text', text: buildPrompt() },
       ]
+}
 
-  const response = await getClient().messages.create(
-    {
-      model: MODEL,
-      max_tokens: 1024,
-      messages: [{ role: 'user', content }],
-    },
-    { timeout: 30_000 },
-  )
-
-  const raw = response.content[0].type === 'text' ? response.content[0].text : '[]'
+/** Strip any markdown fences, parse the JSON array, and map to CalendarEvents. */
+function parseAndMapEvents(jsonText: string): CalendarEvent[] {
   // Strip markdown code fences that the model sometimes adds despite the prompt
-  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
-  const text = (fenceMatch ? fenceMatch[1] : raw).trim()
+  const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  const text = (fenceMatch ? fenceMatch[1] : jsonText).trim()
 
   let extracted: ExtractedEvent[]
   try {
@@ -202,4 +240,111 @@ export async function extractEventsFromFile(
     throw new Error(`Claude returned invalid JSON: ${text.slice(0, 200)}`)
   }
   return extracted.map((e, i) => toCalendarEvent(e, i + 1))
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
+/**
+ * Extract calendar events from a base64-encoded file using Claude (non-streaming).
+ * Throws on API errors; returns an empty array when no events are found.
+ * Retained for callers/tests that want the whole result in one call; the upload
+ * route uses `streamEventsFromFile` instead.
+ */
+export async function extractEventsFromFile(
+  base64: string,
+  mimeType: string,
+): Promise<CalendarEvent[]> {
+  const response = await getClient().messages.create(
+    {
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      messages: [{ role: 'user', content: buildContent(base64, mimeType) }],
+    },
+    { timeout: 30_000 },
+  )
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : '[]'
+  // Discard the summary half; only the JSON payload is mapped to events.
+  const [, jsonPart] = splitOnDelimiter(raw)
+  return parseAndMapEvents(jsonPart)
+}
+
+/**
+ * A chunk emitted by `streamEventsFromFile`:
+ *  - `summary_delta` — a slice of the human-readable summary as it streams in.
+ *  - `result`        — the terminal frame: the full summary plus the parsed,
+ *                      mapped events, produced only once the whole response has
+ *                      arrived.
+ */
+export type StreamChunk =
+  | { type: 'summary_delta'; text: string }
+  | { type: 'result'; summary: string; events: CalendarEvent[] }
+
+/**
+ * Stream a file through Claude, yielding the human-readable summary progressively
+ * and the structured events only once complete.
+ *
+ * Why the split: the summary is safe to show as it arrives, but the events are
+ * *actionable* (a parent adds them to their calendar). We must never surface a
+ * half-formed event, so we forward summary text live while buffering everything
+ * after the delimiter, then parse the JSON in one go and emit the events as a
+ * single terminal `result` chunk. The client never sees partial JSON.
+ */
+export async function* streamEventsFromFile(
+  base64: string,
+  mimeType: string,
+): AsyncGenerator<StreamChunk> {
+  const stream = getClient().messages.stream(
+    {
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      messages: [{ role: 'user', content: buildContent(base64, mimeType) }],
+    },
+    { timeout: 30_000 },
+  )
+
+  // We rebuild the model's output incrementally in `full` and forward only the
+  // part we're sure is summary. `emitted` tracks how much summary we've already
+  // sent so each yield carries just the newly-revealed slice.
+  let full = ''            // everything the model has emitted so far
+  let emitted = 0          // how many chars of summary we've already forwarded
+  let sawDelimiter = false
+
+  for await (const event of stream) {
+    // The SDK stream emits many event kinds; we only care about text deltas.
+    if (event.type !== 'content_block_delta' || event.delta.type !== 'text_delta') continue
+    full += event.delta.text
+
+    // Once the delimiter is seen, all further text is JSON — buffer it silently.
+    if (sawDelimiter) continue
+
+    const at = full.indexOf(EVENTS_DELIMITER)
+    if (at !== -1) sawDelimiter = true
+
+    // The tricky bit: tokens arrive in arbitrary chunks, so the delimiter can be
+    // split across two of them. If we naively forwarded every char, a chunk
+    // ending in "…summary<<<EVE" would leak "<<<EVE" (a delimiter fragment) into
+    // the summary. So while we haven't seen the full delimiter yet, we hold back
+    // its last (length - 1) chars — the most that could be an incomplete
+    // delimiter — and only emit what's provably safe.
+    //
+    // Worked example (delimiter length 17):
+    //   chunk 1 = "Hi.\n<<<EVE"          → no delimiter yet, hold back 16 chars,
+    //                                       emit "Hi.\n"… wait, only 10 chars so
+    //                                       nothing certain yet → emit ""
+    //   chunk 2 = "NTS_JSON>>>\n[]"      → full = "Hi.\n<<<EVENTS_JSON>>>\n[]",
+    //                                       delimiter found at index 4 → emit
+    //                                       "Hi.\n" and stop. No fragment leaks.
+    const safeEnd = sawDelimiter
+      ? at                                                    // emit up to the delimiter
+      : Math.max(emitted, full.length - (EVENTS_DELIMITER.length - 1))
+    if (safeEnd > emitted) {
+      yield { type: 'summary_delta', text: full.slice(emitted, safeEnd) }
+      emitted = safeEnd
+    }
+  }
+
+  // Stream finished: split, parse, and hand back the complete result atomically.
+  const [summary, jsonPart] = splitOnDelimiter(full)
+  yield { type: 'result', summary: summary.trim(), events: parseAndMapEvents(jsonPart) }
 }
