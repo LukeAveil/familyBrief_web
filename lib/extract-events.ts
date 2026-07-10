@@ -24,7 +24,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { CalendarEvent } from '@/types'
+import type { CalendarEvent, ConfidenceLevel, EventConfidence } from '@/types'
 
 const MODEL = 'claude-sonnet-4-6'
 // Bumped from 1024 → 2048 to leave room for the streamed summary prose that now
@@ -74,6 +74,16 @@ For each event, extract:
 - location: where it takes place (optional)
 - description: any important details parents need to know (optional)
 - category: one of school|activity|medical|social|other
+- confidence: an object honestly assessing how sure you are of each of the three things a parent will rely on. Assess each field INDEPENDENTLY — a clearly stated date can be "high" while the title is "low". Each value is exactly one of "high", "medium", or "low":
+    - confidence.title    — how sure you are what the event actually is
+    - confidence.datetime — how sure you are of the date and time
+    - confidence.location — how sure you are of the location (OMIT this key entirely when there is no location)
+  Use this rule for every field:
+    - "high"   — explicitly and unambiguously stated in the document (e.g. a full date with year and a clearly written time; the event named in plain words; a clearly named venue).
+    - "medium" — present but inferred: a date with no year, a relative reference like "next Friday" resolved from today's date, an abbreviated or ambiguous title, or a vague location like "the hall".
+    - "low"    — genuinely unclear, guessed, or pieced together from weak cues.
+
+Example confidence object: "confidence": { "title": "high", "datetime": "medium", "location": "low" }
 
 If no events are found, still write a brief summary, then ${EVENTS_DELIMITER} followed by an empty array [].`
 }
@@ -103,6 +113,16 @@ interface ExtractedEvent {
   location?: string
   description?: string
   category: 'school' | 'activity' | 'medical' | 'social' | 'other'
+  // Loosely typed: this comes straight from the model, so we sanitise it in
+  // toCalendarEvent rather than trusting the shape.
+  confidence?: { title?: string; datetime?: string; location?: string }
+}
+
+/** Coerce a model-supplied confidence value to a valid level. Missing or invalid
+ *  input defaults to 'medium' — the honest fallback is to flag for a second look
+ *  rather than falsely reassure with 'high'. */
+function sanitizeLevel(value: unknown): ConfidenceLevel {
+  return value === 'high' || value === 'low' ? value : 'medium'
 }
 
 // ─── Mappers ────────────────────────────────────────────────────────────────
@@ -184,9 +204,13 @@ function buildCalString(date: string, time?: string, endDate?: string, endTime?:
 }
 
 function toCalendarEvent(event: ExtractedEvent, id: number): CalendarEvent {
-  const confidence = (!event.time && !event.description && !event.location)
-    ? 'medium'
-    : 'high'
+  // Confidence is assessed by the model per field; we only sanitise it here.
+  // Location confidence is included only when the event actually has a location.
+  const confidence: EventConfidence = {
+    title: sanitizeLevel(event.confidence?.title),
+    datetime: sanitizeLevel(event.confidence?.datetime),
+    ...(event.location ? { location: sanitizeLevel(event.confidence?.location) } : {}),
+  }
   return {
     id,
     title: event.title,

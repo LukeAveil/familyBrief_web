@@ -64,7 +64,7 @@ const EVENT: CalendarEvent = {
   location: 'Playing Fields',
   notes: null,
   cal: '20250626T093000/20250626T103000',
-  confidence: 'high',
+  confidence: { title: 'high', datetime: 'high', location: 'high' },
 }
 
 // Drive the real upload flow: put a PDF into the hidden file input, which the

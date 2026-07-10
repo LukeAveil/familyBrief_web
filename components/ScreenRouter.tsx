@@ -32,6 +32,7 @@ import UploadScreen from '@/components/upload/UploadScreen'
 import ProcessingScreen from '@/components/processing/ProcessingScreen'
 import ResultsScreen from '@/components/results/ResultsScreen'
 import ErrorScreen from '@/components/error/ErrorScreen'
+import { MOCK_MULTIPLE } from '@/lib/mock-data'
 
 interface AppState {
   screen: Screen
@@ -82,6 +83,27 @@ export default function ScreenRouter() {
     return () => {
       mountedRef.current = false
       abortRef.current?.abort()
+    }
+  }, [])
+
+  // Dev-only preview: visiting `/?preview=results` jumps straight to the results
+  // screen with mock events spanning every confidence level (high / medium / low,
+  // per field), so the confidence styling can be eyeballed in the browser without
+  // a real upload. Runs in an effect (not the initial state) to avoid a hydration
+  // mismatch, and is a no-op in production.
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return
+    const preview = new URLSearchParams(window.location.search).get('preview')
+    if (preview === 'results') {
+      setApp({
+        screen: 'results',
+        filename: 'sample-newsletter.pdf',
+        summary:
+          'This preview shows a mix of confidence levels so you can see how flagged items look. High-confidence items appear as normal; medium and low ones are marked for a second look.',
+        events: MOCK_MULTIPLE,
+      })
+    } else if (preview === 'empty') {
+      setApp({ screen: 'results', filename: 'sample-newsletter.pdf', summary: '', events: [] })
     }
   }, [])
 
