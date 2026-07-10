@@ -84,7 +84,7 @@ describe('encodeEvents / decodeEvents', () => {
     location: 'Main Hall',
     notes: 'Book a slot',
     cal: '20250626T170000/20250626T190000',
-    confidence: 'high',
+    confidence: { title: 'high', datetime: 'high', location: 'high' },
   }
 
   it('round-trips the minimal fields', () => {
