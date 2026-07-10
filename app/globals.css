@@ -35,6 +35,9 @@
   --color-gcal:       #1a73e8;
   --color-gcal-hover: #1558c0;
 
+  --color-apple:       #1d1d1f;
+  --color-apple-hover: #000000;
+
   /* Border radius — overrides Tailwind defaults with design values */
   --radius-sm:  8px;
   --radius-md:  12px;
@@ -204,6 +207,11 @@
   .btn-gcal-base:hover { background-color: var(--color-gcal-hover); }
   .btn-gcal-base:active { transform: scale(.98); }
   .btn-gcal-base:disabled { background-color: var(--color-ink-subtle); cursor: not-allowed; transform: none; }
+
+  .btn-apple-base { transition: background 150ms, transform 80ms; }
+  .btn-apple-base:hover { background-color: var(--color-apple-hover); }
+  .btn-apple-base:active { transform: scale(.98); }
+  .btn-apple-base:disabled { background-color: var(--color-ink-subtle); cursor: not-allowed; transform: none; }
 
   .btn-ghost-base { transition: background 150ms, color 150ms, border-color 150ms; }
   .btn-ghost-base:hover {
