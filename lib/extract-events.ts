@@ -255,6 +255,20 @@ function buildContent(base64: string, mimeType: string): Anthropic.MessageParam[
       ]
 }
 
+/**
+ * Build the request content for a plain-text message. Same shape as
+ * `buildContent` but the "document" is a text block instead of a file: the
+ * letter text first, then the same `buildPrompt()` instruction, so the model
+ * sees an identical task regardless of how the source arrived. Used by the
+ * string-in entry point below.
+ */
+function buildTextContent(text: string): Anthropic.MessageParam['content'] {
+  return [
+    { type: 'text', text },
+    { type: 'text', text: buildPrompt() },
+  ]
+}
+
 /** Strip any markdown fences, parse the JSON array, and map to CalendarEvents. */
 function parseAndMapEvents(jsonText: string): CalendarEvent[] {
   // Strip markdown code fences that the model sometimes adds despite the prompt
@@ -273,20 +287,22 @@ function parseAndMapEvents(jsonText: string): CalendarEvent[] {
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
- * Extract calendar events from a base64-encoded file using Claude (non-streaming).
- * Throws on API errors; returns an empty array when no events are found.
- * Retained for callers/tests that want the whole result in one call; the upload
- * route uses `streamEventsFromFile` instead.
+ * The shared non-streaming core: one `messages.create` call, then split off the
+ * summary and map the JSON payload to events. Both public non-streaming entry
+ * points (`extractEventsFromFile`, `extractEventsFromText`) differ ONLY in how
+ * they build the request `content` — the model, token budget, timeout, delimiter
+ * split, and JSON parsing are identical, so they live here in one place. Keeping
+ * this seam means the eval's string-in path exercises the exact same model call
+ * and parsing the production upload path relies on.
  */
-export async function extractEventsFromFile(
-  base64: string,
-  mimeType: string,
+async function extractFromContent(
+  content: Anthropic.MessageParam['content'],
 ): Promise<CalendarEvent[]> {
   const response = await getClient().messages.create(
     {
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      messages: [{ role: 'user', content: buildContent(base64, mimeType) }],
+      messages: [{ role: 'user', content }],
     },
     { timeout: 30_000 },
   )
@@ -295,6 +311,38 @@ export async function extractEventsFromFile(
   // Discard the summary half; only the JSON payload is mapped to events.
   const [, jsonPart] = splitOnDelimiter(raw)
   return parseAndMapEvents(jsonPart)
+}
+
+/**
+ * Extract calendar events from a base64-encoded file using Claude (non-streaming).
+ * Throws on API errors; returns an empty array when no events are found.
+ * Retained for callers/tests that want the whole result in one call; the upload
+ * route uses `streamEventsFromFile` instead.
+ *
+ * Unchanged in behaviour by the phase-two refactor: it still owns file → content
+ * translation, and delegates the model call + parsing to `extractFromContent`.
+ */
+export async function extractEventsFromFile(
+  base64: string,
+  mimeType: string,
+): Promise<CalendarEvent[]> {
+  return extractFromContent(buildContent(base64, mimeType))
+}
+
+/**
+ * Extract calendar events from a raw text string using Claude (non-streaming).
+ *
+ * WHY THIS EXISTS: the AI eval harness feeds each fixture's `sourceLetter` — a
+ * plain string — to the live model. The only non-streaming entry point before
+ * this was file-oriented, so the eval would have had to base64-encode strings
+ * into fake "files" just to reach the pipeline. That ceremony obscured the thing
+ * actually under test (does the model extract the right events from this text?)
+ * and coupled the eval to the file/mime plumbing. A string-in variant makes the
+ * eval read as what it is. It shares the model call and parsing with the
+ * file path via `extractFromContent`, so the two can never drift apart.
+ */
+export async function extractEventsFromText(text: string): Promise<CalendarEvent[]> {
+  return extractFromContent(buildTextContent(text))
 }
 
 /**

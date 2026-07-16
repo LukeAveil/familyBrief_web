@@ -171,4 +171,109 @@ Deliberately **not** done, and why:
 
 - Add pre-commit hooks once the manual habit is established.
 - Add the same `format:check` / `lint` / `typecheck` steps to `deploy.yml`.
-- Build the AI eval harness on top of `__tests__/fixtures/` (see Layer 4).
+- Build the AI eval harness on top of `__tests__/fixtures/` (see Layer 4). ← **done in phase two, below.**
+
+---
+
+# Phase two: AI evaluation harness
+
+The coding harness above catches bugs in **our code**. It can't catch the model
+getting worse. When you tweak the extraction prompt, or Anthropic ships a new
+model, the code still type-checks and the mocked integration test still passes —
+because the mock returns a canned answer. The thing that actually changed, the
+live model's output, is exactly the thing the mock hides.
+
+The eval closes that gap. It's the same idea as Layer 4 — same fixtures, same
+`expected` ground truth — but it swaps the mocked SDK for the **real** API and
+scores how far the live output drifts from ground truth.
+
+```bash
+npm run eval
+```
+
+## What it does
+
+For each fixture in `__tests__/fixtures/school-messages.ts` it:
+
+1. Sends the fixture's **`sourceLetter`** (the human-readable original) to the
+   live Claude API via `extractEventsFromText` — a string-in entry point added
+   for exactly this purpose (`lib/extract-events.ts`).
+2. Structurally compares the result against the fixture's **`expected`** events
+   with `compareExtraction` (`lib/eval/compare.ts`), producing a per-field diff
+   and a 0–100 score.
+3. Prints a per-fixture report and a summary to stdout.
+4. Writes the raw results to `eval-results/{timestamp}.json`.
+
+The output looks like this (abridged):
+
+```
+── multi-event-newsletter ───────────────────────────────
+   A monthly newsletter with three events…
+   event count: ✓ match
+   event 0: ✓ title=exact timed=ok location=both-null | confidence[title=exact datetime=exact location=n/a]
+   event 1: · title=exact timed=ok location=exact    | confidence[title=exact datetime=off-by-one location=exact]
+   event 2: ✓ title=close timed=ok location=exact    | confidence[title=exact datetime=exact location=exact]
+   score: 92/100
+════════════════════════════════════════════════════════════════
+SUMMARY   average score: 95/100   (3 scored, 0 errored)
+  clean (100):  single-clear-event
+  drifted:      multi-event-newsletter (92), ambiguous-low-confidence (94)
+════════════════════════════════════════════════════════════════
+
+Raw results written to …/eval-results/2026-07-16T12-00-00.000Z.json
+```
+
+## The design decisions, and why
+
+- **Regression-focused, not baseline-focused.** The score is not the point — the
+  _change_ in the score is. A single run tells you roughly how the current
+  model+prompt does; two runs across a prompt edit or model bump tell you whether
+  you made it better or worse. That's why every run is persisted to
+  `eval-results/` as JSON: so runs can be diffed over time. Baseline scoring is a
+  by-product of building a regression detector, not the goal.
+
+- **Structural comparison, not model-graded.** We compare fields with a pure
+  function (title exact/close/miss, timed-ness, location, per-field confidence)
+  rather than asking a second model "how close are these?". A model grader is
+  itself non-deterministic and can drift on its own, so a score change would no
+  longer isolate _the extraction_ as the cause — the exact thing a regression
+  eval must do. The pure function is deterministic, free, fast, and its verdict
+  is inspectable line by line. The cost is that it only grades the dimensions we
+  encode; that's an accepted, honest limit (see `lib/eval/compare.ts`).
+
+- **Positional event matching, not fuzzy pairing.** Events are compared
+  index-to-index. Clever nearest-match pairing would quietly re-align a dropped
+  or reordered event and make the diff look healthier than reality. Positional
+  keeps failures obvious: a wrong count or wrong order shows up as misses.
+
+- **On-demand, not CI.** `npm run eval` is never wired into `npm test` or any
+  workflow. It spends real API credits and is non-deterministic, so it does not
+  belong on the fast, free, deterministic path every push runs. You run it
+  deliberately, when you've changed the prompt or the model, and read the output.
+
+- **String-in entry point, not file encoding.** The production pipeline is
+  file-oriented (base64 + mime). Rather than base64-encode fixture strings into
+  fake "files" to reach it — ceremony that obscures what's under test —
+  `extractEventsFromText` shares the model call and parsing with
+  `extractEventsFromFile` via a common core, so the eval reads as what it is
+  without a second copy of the logic to keep in sync.
+
+## What it deliberately doesn't cover yet
+
+These are left undone on purpose — each is a real next step, not an oversight:
+
+- **Multi-run averaging for non-determinism.** The live model can answer slightly
+  differently across calls, so a single run's score has noise in it. The honest
+  fix is to run each fixture N times and report a mean/spread. Not built yet
+  because the fixture set is small and the current goal is to _see_ the shape of
+  the output first; averaging is the natural follow-up once a run cadence exists.
+- **Prompt versioning.** Right now a run's JSON records the score but not _which
+  prompt produced it_. Stamping each run with a prompt hash/version would make
+  the over-time diff causal ("score dropped when we changed the confidence
+  instructions"), not just correlational.
+- **CI integration.** Intentionally excluded (see above). If it's ever automated,
+  it belongs on a schedule or a manual trigger with a cost budget — never on the
+  per-push path.
+- **Richer scoring dimensions.** Description quality, category correctness, and
+  date-value exactness aren't graded. They can be added to `compareExtraction`
+  as more `expected` fields when they start to matter.
