@@ -346,14 +346,36 @@ export async function extractEventsFromText(text: string): Promise<CalendarEvent
 }
 
 /**
+ * The pipeline's own view of "what stage is the agent at". Emitted as explicit
+ * `status` chunks (below) at natural transitions in the stream.
+ *
+ * WHY THIS IS AN EXPLICIT SIGNAL, NOT DERIVED: a consumer *could* guess the stage
+ * from timing ("we've seen summary deltas but no result yet, so we must be
+ * extracting"). That coupling is fragile — it re-implements the pipeline's own
+ * knowledge in the UI, and it breaks the moment the ordering changes. The
+ * pipeline is the one place that actually knows when it flips from reading to
+ * summarising to extracting, so it says so directly. The left panel then just
+ * renders the stage it's told; it never infers.
+ *  - `reading`     — stream opened, no tokens yet.
+ *  - `summarizing` — the first summary token has arrived.
+ *  - `extracting`  — the delimiter was seen; the events JSON is now arriving.
+ *  - `complete`    — the terminal result has been emitted; the status line clears.
+ */
+export type AgentStage = 'reading' | 'summarizing' | 'extracting' | 'complete'
+
+/**
  * A chunk emitted by `streamEventsFromFile`:
  *  - `summary_delta` — a slice of the human-readable summary as it streams in.
+ *  - `status`        — an agent-stage transition (see `AgentStage`). Distinct
+ *                      from summary/events so a consumer can route it to its own
+ *                      state without touching either.
  *  - `result`        — the terminal frame: the full summary plus the parsed,
  *                      mapped events, produced only once the whole response has
  *                      arrived.
  */
 export type StreamChunk =
   | { type: 'summary_delta'; text: string }
+  | { type: 'status'; stage: AgentStage }
   | { type: 'result'; summary: string; events: CalendarEvent[] }
 
 /**
@@ -379,12 +401,17 @@ export async function* streamEventsFromFile(
     { timeout: 30_000 },
   )
 
+  // Transition 1 — the stream is open but no tokens have arrived yet.
+  yield { type: 'status', stage: 'reading' }
+
   // We rebuild the model's output incrementally in `full` and forward only the
   // part we're sure is summary. `emitted` tracks how much summary we've already
   // sent so each yield carries just the newly-revealed slice.
   let full = '' // everything the model has emitted so far
   let emitted = 0 // how many chars of summary we've already forwarded
   let sawDelimiter = false
+  // Guards so each status transition fires exactly once, at its natural moment.
+  let announcedSummarizing = false
 
   for await (const event of stream) {
     // The SDK stream emits many event kinds; we only care about text deltas.
@@ -415,12 +442,27 @@ export async function* streamEventsFromFile(
       ? at // emit up to the delimiter
       : Math.max(emitted, full.length - (EVENTS_DELIMITER.length - 1))
     if (safeEnd > emitted) {
+      // Transition 2 — the first provably-safe summary text is about to go out,
+      // so the model has moved from reading to writing the summary. Fire once.
+      if (!announcedSummarizing) {
+        announcedSummarizing = true
+        yield { type: 'status', stage: 'summarizing' }
+      }
       yield { type: 'summary_delta', text: full.slice(emitted, safeEnd) }
       emitted = safeEnd
     }
+
+    // Transition 3 — announced AFTER this iteration's summary flush so the order
+    // is always reading → summarizing → extracting, even when a single chunk
+    // carries the tail of the summary AND the delimiter. `if (sawDelimiter)
+    // continue` at the top guarantees we only reach here on the flip iteration,
+    // so this fires exactly once.
+    if (sawDelimiter) yield { type: 'status', stage: 'extracting' }
   }
 
   // Stream finished: split, parse, and hand back the complete result atomically.
   const [summary, jsonPart] = splitOnDelimiter(full)
   yield { type: 'result', summary: summary.trim(), events: parseAndMapEvents(jsonPart) }
+  // Transition 4 — everything has been delivered; the status line can clear.
+  yield { type: 'status', stage: 'complete' }
 }
