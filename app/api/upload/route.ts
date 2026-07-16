@@ -101,6 +101,11 @@ export async function POST(req: NextRequest) {
         for await (const chunk of streamEventsFromFile(base64, file.type)) {
           if (chunk.type === 'summary_delta') {
             controller.enqueue(sse('delta', { text: chunk.text }))
+          } else if (chunk.type === 'status') {
+            // New in the two-panel work: forward agent-stage transitions as their
+            // own SSE event. Purely additive — clients that don't know `status`
+            // ignore it, and the `delta`/`done`/`error` contract is unchanged.
+            controller.enqueue(sse('status', { stage: chunk.stage }))
           } else {
             controller.enqueue(sse('done', { summary: chunk.summary, events: chunk.events }))
           }

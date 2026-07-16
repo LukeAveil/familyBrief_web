@@ -277,3 +277,90 @@ These are left undone on purpose — each is a real next step, not an oversight:
 - **Richer scoring dimensions.** Description quality, category correctness, and
   date-value exactness aren't graded. They can be added to `compareExtraction`
   as more `expected` fields when they start to matter.
+
+---
+
+# State architecture — the two-panel workspace
+
+The workspace shows two panels at once: a conversational **stream panel** (the
+summary typing out live, with a single-line agent status underneath) and a
+structured **events panel** (the extracted events with their confidence
+indicators). The load-bearing requirement is a rendering one: **the events panel
+must not re-render while the summary streams.** A letter's summary arrives as
+dozens of tokens; the events don't change across any of them. Every events-panel
+render during that stream is wasted work, and on a longer document it's the
+difference between a workspace that feels instant and one that stutters.
+
+That requirement — not feature count — is why the state is shaped the way it is.
+
+### Two isolated stores, not one lifted state
+
+The pre-workspace design lifted everything into the orchestrator's `useState` (a
+single object holding summary + events). That is the simplest thing that works,
+and it's exactly what fails here: calling `setState` to append one summary token
+produces a new state object, so **every** consumer of that state re-renders —
+the events panel included, on every token.
+
+The fix is two separate Zustand stores — `useLeftPanelStore` (summary, status,
+error, and a reserved chat slice) and `useEventsStore` (events, phase, error) —
+each consumed by exactly one panel.
+
+- **Why not lifted state:** covered above — a shared object re-renders everything
+  that reads any part of it.
+- **Why not one store with selectors:** Zustand selectors _can_ deliver the same
+  isolation (`useStore(s => s.events)` only re-renders when `events` changes). But
+  that isolation is a matter of discipline — one careless `useStore(s => s)` or an
+  object-returning selector re-subscribes a panel to the whole store, and nothing
+  fails loudly when it happens. With two stores the boundary is **structural**:
+  `RightPanel` imports `useEventsStore` and never imports the left store, so there
+  is no selector it _could_ write that would re-render it on a summary token. The
+  guarantee holds by construction, not by review vigilance.
+- **The consumer writes, it doesn't subscribe.** `ScreenRouter` routes stream
+  frames into the stores via `useStore.getState().action()` — it never calls the
+  hooks, so it holds no summary/events state itself and doesn't re-render as they
+  change. Writer and readers are cleanly separated.
+
+The isolation is instrumented, not asserted: `RightPanel` logs a render count in
+development. On a typical upload it logs about twice — once on mount (the loading
+skeleton), once when events arrive — and never on a summary token. If that number
+ever tracks the token count, the architecture has regressed.
+
+### Agent status is an explicit stream chunk, not derived state
+
+The status line ("Reading letter…", "Writing summary…", "Extracting events…") is
+driven by a dedicated `status` chunk the pipeline emits at each transition — a
+third `StreamChunk` variant alongside summary deltas and the terminal result,
+carried to the client as its own SSE event.
+
+The tempting alternative is to _derive_ the stage in the UI from timing: "we've
+seen summary deltas but no events yet, so we must be extracting." That couples the
+UI to the pipeline's internal ordering — it re-implements, in the consumer,
+knowledge the pipeline already has, and it breaks silently the moment that
+ordering changes (a new stage, reordered emission, a model that interleaves).
+Making status an explicit signal keeps the pipeline the **single source of truth**
+for its own progress: it says when it transitions, and the panel is a dumb
+renderer of the stage it's told. It also means the status can describe work that
+produces no visible tokens at all — the `reading` stage exists before the first
+summary token, which no timing heuristic could infer.
+
+### Errors are panel-scoped
+
+Each store carries its own `error`, and each panel renders only its own. An
+events-only failure (a malformed terminal frame) sets the events store's error
+while the streamed summary stays intact on the left; a whole-stream failure sets
+both, as independent writes. Because a panel reads only its own store, one side
+failing can never blank the other — the same isolation that serves rendering also
+contains failures.
+
+### What it deliberately leaves for later
+
+- **Chat input and transcript.** `useLeftPanelStore` reserves a `chatMessages`
+  slice, empty and unused. Chat belongs to the same conversational surface as the
+  summary and needs the same isolation from the events panel, so it will live in
+  this store; the layout already leaves room under the status line for the input.
+  Declaring the shape now means adding chat is additive — new actions on an
+  existing store — rather than a restructure of the panel/store boundary.
+- **A side-by-side layout.** The panels stack in a column (stream on top) because
+  the app is mobile-first and narrow. Going horizontal on wide viewports is a
+  layout-only change in `WorkspaceShell` — neither panel nor either store knows
+  or cares how the two are arranged.
