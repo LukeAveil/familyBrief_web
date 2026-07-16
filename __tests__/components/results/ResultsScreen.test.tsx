@@ -20,11 +20,13 @@ afterEach(() => {
 })
 
 // userEvent configured to advance fake timers for its own internal delays
-const setupUser = () =>
-  userEvent.setup({ advanceTimers: (ms) => jest.advanceTimersByTime(ms) })
+const setupUser = () => userEvent.setup({ advanceTimers: (ms) => jest.advanceTimersByTime(ms) })
 
 // Flush component setTimeout callbacks and the resulting React state updates
-const advanceTimers = () => act(() => { jest.runAllTimers() })
+const advanceTimers = () =>
+  act(() => {
+    jest.runAllTimers()
+  })
 
 // ─── Single-event ─────────────────────────────────────────────────────────────
 
@@ -124,7 +126,9 @@ describe('ResultsScreen — adding a subset of events', () => {
     await renderAndAddFirst()
     // ev2 was deselected before the add — the component treats it as "user is done"
     expect(
-      screen.queryByRole('button', { name: /add all \d+ events|add \d+ events?|select events to add/i }),
+      screen.queryByRole('button', {
+        name: /add all \d+ events|add \d+ events?|select events to add/i,
+      }),
     ).not.toBeInTheDocument()
   })
 })
@@ -140,7 +144,9 @@ describe('ResultsScreen — adding all events', () => {
     advanceTimers()
     // The CTA button (Add all / Add N / Select events) should be gone; card buttons are unaffected
     expect(
-      screen.queryByRole('button', { name: /add all \d+ events|add \d+ events?|select events to add/i }),
+      screen.queryByRole('button', {
+        name: /add all \d+ events|add \d+ events?|select events to add/i,
+      }),
     ).not.toBeInTheDocument()
   })
 })
@@ -183,7 +189,9 @@ describe('ResultsScreen — mobile sequential add', () => {
       '_blank',
     )
     expect(
-      screen.queryByRole('button', { name: /add (all \d+|\d+) events?|add next event|select events to add/i }),
+      screen.queryByRole('button', {
+        name: /add (all \d+|\d+) events?|add next event|select events to add/i,
+      }),
     ).not.toBeInTheDocument()
   })
 
@@ -203,7 +211,8 @@ describe('ResultsScreen — mobile sequential add', () => {
 
 // ─── iPad sequential add (desktop UA, maxTouchPoints > 0) ────────────────────
 
-const IPAD_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
+const IPAD_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
 
 describe('ResultsScreen — iPad sequential add', () => {
   const realUA = navigator.userAgent

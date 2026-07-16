@@ -44,7 +44,7 @@ const makeFormData = (file: File, fieldName = 'file') => {
 
 // Magic byte prefixes for each supported type
 const PDF_MAGIC = new Uint8Array([0x25, 0x50, 0x44, 0x46]) // %PDF
-const JPEG_MAGIC = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])
+const JPEG_MAGIC = new Uint8Array([0xff, 0xd8, 0xff, 0xe0])
 
 function makeFile(name: string, type: string, sizeBytes = 100, magic?: Uint8Array): File {
   const buf = new ArrayBuffer(Math.max(sizeBytes, magic?.length ?? 0))
@@ -60,15 +60,17 @@ function makeJpeg(name = 'photo.jpg', sizeBytes = 100) {
   return makeFile(name, 'image/jpeg', sizeBytes, JPEG_MAGIC)
 }
 
-const MOCK_EVENTS_JSON = JSON.stringify([{
-  title: 'Sports Day',
-  date: '2025-06-26',
-  time: '09:30',
-  endTime: '12:00',
-  location: 'Playing Fields',
-  description: 'Wear PE kit',
-  category: 'school',
-}])
+const MOCK_EVENTS_JSON = JSON.stringify([
+  {
+    title: 'Sports Day',
+    date: '2025-06-26',
+    time: '09:30',
+    endTime: '12:00',
+    location: 'Playing Fields',
+    description: 'Wear PE kit',
+    category: 'school',
+  },
+])
 
 // The model's full response: a summary, the delimiter, then the JSON array —
 // the shape streamEventsFromFile splits on.
@@ -80,8 +82,16 @@ function fakeStream(text: string) {
   return {
     async *[Symbol.asyncIterator]() {
       const mid = Math.floor(text.length / 2)
-      yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(0, mid) } }
-      yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(mid) } }
+      yield {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: text.slice(0, mid) },
+      }
+      yield {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: text.slice(mid) },
+      }
     },
   }
 }
@@ -96,7 +106,7 @@ async function collectSSE(res: Response): Promise<{ event: string; data: string 
   return body
     .split('\n\n')
     .filter(Boolean)
-    .map(raw => {
+    .map((raw) => {
       let event = 'message'
       const data: string[] = []
       for (const line of raw.split('\n')) {
@@ -169,10 +179,13 @@ describe('POST /api/upload — extraction (SSE)', () => {
 
     const frames = await collectSSE(res)
     // Summary streamed as one or more delta frames…
-    const summary = frames.filter(f => f.event === 'delta').map(f => JSON.parse(f.data).text).join('')
+    const summary = frames
+      .filter((f) => f.event === 'delta')
+      .map((f) => JSON.parse(f.data).text)
+      .join('')
     expect(summary).toContain('summary of what I found')
     // …and the terminal done frame carries the parsed events (never partial JSON).
-    const done = frames.find(f => f.event === 'done')
+    const done = frames.find((f) => f.event === 'done')
     expect(done).toBeTruthy()
     const data = JSON.parse(done!.data)
     expect(Array.isArray(data.events)).toBe(true)
@@ -186,20 +199,22 @@ describe('POST /api/upload — extraction (SSE)', () => {
     const res = await POST(makeRequest(fd))
     expect(res.status).toBe(200)
     const frames = await collectSSE(res)
-    expect(frames.some(f => f.event === 'done')).toBe(true)
+    expect(frames.some((f) => f.event === 'done')).toBe(true)
   })
 
   it('emits an in-band, sanitized error frame when the Anthropic stream throws', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {})
     mockStream.mockImplementationOnce(() => ({
-      async *[Symbol.asyncIterator]() { throw new Error('rate limited') },
+      async *[Symbol.asyncIterator]() {
+        throw new Error('rate limited')
+      },
     }))
     const fd = makeFormData(makePdf())
     const res = await POST(makeRequest(fd))
     // Headers are already committed to 200 — the error is delivered in-band.
     expect(res.status).toBe(200)
     const frames = await collectSSE(res)
-    const errFrame = frames.find(f => f.event === 'error')
+    const errFrame = frames.find((f) => f.event === 'error')
     expect(errFrame).toBeTruthy()
     expect(JSON.parse(errFrame!.data).message).toBe('Extraction failed. Please try again.')
     // The raw SDK error text must never leak to the client.
@@ -211,7 +226,7 @@ describe('POST /api/upload — extraction (SSE)', () => {
     mockSuccess()
     const fd = makeFormData(makePdf())
     const frames = await collectSSE(await POST(makeRequest(fd)))
-    const { events } = JSON.parse(frames.find(f => f.event === 'done')!.data)
+    const { events } = JSON.parse(frames.find((f) => f.event === 'done')!.data)
     const [event] = events
     expect(typeof event.id).toBe('number')
     expect(typeof event.title).toBe('string')
@@ -240,8 +255,7 @@ describe('POST /api/upload — rate limiting', () => {
 
   it('returns 429 after exceeding the rate limit', async () => {
     const ip = uniqueIp()
-    const send = () =>
-      POST(makeRequest(makeFormData(makeFile('notes.txt', 'text/plain')), ip))
+    const send = () => POST(makeRequest(makeFormData(makeFile('notes.txt', 'text/plain')), ip))
 
     // Fire 5 requests — all pass the rate limiter (even though they fail at
     // MIME-type validation with 415).

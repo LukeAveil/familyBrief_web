@@ -33,13 +33,18 @@ function buildIcsUrl(events: CalendarEvent[]): string {
   return `/api/ics?e=${encodeEvents(events)}`
 }
 
-export default function ResultsScreen({ filename, summary, events, onReset, compact }: ResultsScreenProps) {
-  const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map(e => e.id)))
+export default function ResultsScreen({
+  filename,
+  summary,
+  events,
+  onReset,
+  compact,
+}: ResultsScreenProps) {
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(events.map((e) => e.id)))
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set())
   const [pendingQueue, setPendingQueue] = useState<CalendarEvent[]>([])
   const [batchStart, setBatchStart] = useState(0)
   const [adding, setAdding] = useState(false)
-
 
   if (events.length === 0) {
     return (
@@ -53,7 +58,9 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
           No events found
         </h2>
         <p className="text-[15px] text-ink-muted leading-[1.6] mb-6">
-          We couldn&apos;t spot any dates or events in <span className="font-medium text-ink">{filename}</span>. This sometimes happens with letters that are mostly information rather than schedules.
+          We couldn&apos;t spot any dates or events in{' '}
+          <span className="font-medium text-ink">{filename}</span>. This sometimes happens with
+          letters that are mostly information rather than schedules.
         </p>
         <button
           className="btn-primary-base inline-flex items-center justify-center gap-[7px] bg-primary text-white w-full px-5 py-[11px] rounded-lg text-[15px] font-semibold"
@@ -71,15 +78,16 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
   const multi = events.length > 1
 
   const toggle = (id: number) => {
-    setSelected(prev => {
+    setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
 
   const handleAddAll = () => {
-    const toOpen = events.filter(e => selected.has(e.id) && !addedIds.has(e.id))
+    const toOpen = events.filter((e) => selected.has(e.id) && !addedIds.has(e.id))
     if (toOpen.length === 0) return
 
     if (isMobileDevice()) {
@@ -90,18 +98,22 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
       // render, so the "Add all" button is gone before the user can tap again.
       setBatchStart(addedIds.size)
       window.open(buildCalUrl(toOpen[0]), '_blank')
-      setAddedIds(prev => new Set([...prev, toOpen[0].id]))
-      setSelected(prev => { const next = new Set(prev); next.delete(toOpen[0].id); return next })
+      setAddedIds((prev) => new Set([...prev, toOpen[0].id]))
+      setSelected((prev) => {
+        const next = new Set(prev)
+        next.delete(toOpen[0].id)
+        return next
+      })
       if (toOpen.length > 1) setPendingQueue(toOpen.slice(1))
     } else {
       // Desktop: stagger opens so the browser doesn't bundle them into one tab.
       setAdding(true)
       toOpen.forEach((ev, i) => setTimeout(() => window.open(buildCalUrl(ev), '_blank'), i * 400))
       setTimeout(() => {
-        setAddedIds(prev => new Set([...prev, ...toOpen.map(e => e.id)]))
-        setSelected(prev => {
+        setAddedIds((prev) => new Set([...prev, ...toOpen.map((e) => e.id)]))
+        setSelected((prev) => {
           const next = new Set(prev)
-          toOpen.forEach(e => next.delete(e.id))
+          toOpen.forEach((e) => next.delete(e.id))
           return next
         })
         setAdding(false)
@@ -114,20 +126,24 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
     const ev = pendingQueue[0]
     // Direct user gesture → deep-links to Calendar app on mobile.
     window.open(buildCalUrl(ev), '_blank')
-    setAddedIds(prev => new Set([...prev, ev.id]))
-    setSelected(prev => { const next = new Set(prev); next.delete(ev.id); return next })
-    setPendingQueue(prev => prev.slice(1))
+    setAddedIds((prev) => new Set([...prev, ev.id]))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.delete(ev.id)
+      return next
+    })
+    setPendingQueue((prev) => prev.slice(1))
   }
 
   // Apple path: the .ics bundles every selected-and-not-yet-added event, so one
   // tap on the download link adds them all. This just records that they're added
   // (the link itself triggers the download via the browser's default action).
-  const appleTargets = events.filter(e => selected.has(e.id) && !addedIds.has(e.id))
+  const appleTargets = events.filter((e) => selected.has(e.id) && !addedIds.has(e.id))
   const markAppleAdded = (evs: CalendarEvent[]) => {
-    setAddedIds(prev => new Set([...prev, ...evs.map(e => e.id)]))
-    setSelected(prev => {
+    setAddedIds((prev) => new Set([...prev, ...evs.map((e) => e.id)]))
+    setSelected((prev) => {
       const next = new Set(prev)
-      evs.forEach(e => next.delete(e.id))
+      evs.forEach((e) => next.delete(e.id))
       return next
     })
   }
@@ -137,7 +153,7 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
   const allAdded =
     addedIds.size > 0 &&
     pendingQueue.length === 0 &&
-    events.every(e => addedIds.has(e.id) || !selected.has(e.id))
+    events.every((e) => addedIds.has(e.id) || !selected.has(e.id))
 
   const selCount = selected.size
 
@@ -148,9 +164,7 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
   return (
     <div>
       {/* The finished summary the parent watched type out on the processing screen. */}
-      {summary && (
-        <p className="text-[14px] leading-relaxed text-ink-muted mb-5">{summary}</p>
-      )}
+      {summary && <p className="text-[14px] leading-relaxed text-ink-muted mb-5">{summary}</p>}
 
       {/* Results header */}
       <div className="flex items-center gap-[14px] mb-5">
@@ -175,18 +189,20 @@ export default function ResultsScreen({ filename, summary, events, onReset, comp
           </span>
           <div>
             <p className="text-sm font-semibold text-success">Added to your calendar</p>
-            <p className="text-xs text-ink-subtle mt-0.5">Check your calendar to confirm they appeared</p>
+            <p className="text-xs text-ink-subtle mt-0.5">
+              Check your calendar to confirm they appeared
+            </p>
           </div>
         </div>
       )}
 
       {/* Event list */}
       <div className="flex flex-col gap-3 mb-5">
-        {events.map(ev => (
+        {events.map((ev) => (
           <EventCard
             key={ev.id}
             event={ev}
-            selected={multi ? (addedIds.has(ev.id) || selected.has(ev.id)) : undefined}
+            selected={multi ? addedIds.has(ev.id) || selected.has(ev.id) : undefined}
             onToggle={multi && !addedIds.has(ev.id) ? () => toggle(ev.id) : undefined}
             calendarAdded={addedIds.has(ev.id)}
             compact={compact}

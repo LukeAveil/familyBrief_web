@@ -72,7 +72,8 @@ export function decodeEvents(payload: string): IcsEvent[] | null {
   for (const item of parsed) {
     if (!item || typeof item !== 'object') return null
     const e = item as Record<string, unknown>
-    if (typeof e.id !== 'number' || typeof e.title !== 'string' || typeof e.cal !== 'string') return null
+    if (typeof e.id !== 'number' || typeof e.title !== 'string' || typeof e.cal !== 'string')
+      return null
     // cal must look like "start/end" — validated more strictly when we build the VEVENT.
     if (!e.cal.includes('/')) return null
     out.push({

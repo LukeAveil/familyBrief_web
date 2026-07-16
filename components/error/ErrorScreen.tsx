@@ -26,7 +26,8 @@ export default function ErrorScreen({ filename, onRetry, onReset }: ErrorScreenP
         Couldn&apos;t read that one
       </h2>
       <p className="text-[15px] text-ink-muted leading-[1.6] mb-6">
-        We couldn&apos;t read <span className="font-medium text-ink">{filename}</span>. The image may be too blurry, low-contrast, or cropped. A cleaner photo or a PDF usually works better.
+        We couldn&apos;t read <span className="font-medium text-ink">{filename}</span>. The image
+        may be too blurry, low-contrast, or cropped. A cleaner photo or a PDF usually works better.
       </p>
 
       {/* Tips card */}

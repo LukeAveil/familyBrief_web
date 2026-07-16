@@ -52,7 +52,10 @@ const DEFAULT_STATE: AppState = {
 // The server sends Server-Sent Events: frames separated by a blank line, each
 // with an `event:` line and a `data:` line. We parse one frame's text into its
 // event name and raw (still-JSON) data string; the caller decides how to read it.
-function parseFrame(raw: string): { event: string; data: string } | null {
+// Exported so it can be unit-tested directly — this is fiddly string parsing the
+// type checker can't guard, and its only other coverage is the heavy full-flow
+// ScreenRouter test. Nothing else imports it; the export exists for the tests.
+export function parseFrame(raw: string): { event: string; data: string } | null {
   let event = 'message'
   const dataLines: string[] = []
   for (const line of raw.split('\n')) {
@@ -94,6 +97,13 @@ export default function ScreenRouter() {
   useEffect(() => {
     if (process.env.NODE_ENV === 'production') return
     const preview = new URLSearchParams(window.location.search).get('preview')
+    // This is the sanctioned "synchronise with an external system" use of an
+    // effect: it reads the browser URL once, after mount, and jumps to the
+    // preview state. It deliberately does NOT go in the initial useState — doing
+    // so would compute a different first render on the client than the server
+    // produced and cause a hydration mismatch. So the set-state-in-effect
+    // heuristic is a false positive here; we opt out for these two calls only.
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (preview === 'results') {
       setApp({
         screen: 'results',
@@ -105,6 +115,7 @@ export default function ScreenRouter() {
     } else if (preview === 'empty') {
       setApp({ screen: 'results', filename: 'sample-newsletter.pdf', summary: '', events: [] })
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [])
 
   const navigate = (partial: Partial<AppState>) => {
@@ -112,7 +123,7 @@ export default function ScreenRouter() {
     setTransitioning(true)
     setTimeout(() => {
       if (!mountedRef.current) return
-      setApp(prev => ({ ...prev, ...partial }))
+      setApp((prev) => ({ ...prev, ...partial }))
       setTransitioning(false)
     }, 180)
   }
@@ -190,7 +201,7 @@ export default function ScreenRouter() {
             // deliberately do NOT parse or render any structured/actionable data
             // mid-stream; events arrive only in the terminal `done` frame below.
             const { text } = payload as { text: string }
-            if (mountedRef.current) setStreamingSummary(prev => prev + text)
+            if (mountedRef.current) setStreamingSummary((prev) => prev + text)
           } else if (frame.event === 'done') {
             const { summary, events } = payload as { summary: string; events: CalendarEvent[] }
             // Guard against a malformed terminal frame (case 2, terminal form).
@@ -238,9 +249,7 @@ export default function ScreenRouter() {
       <main className="flex-1 flex flex-col items-center px-4 pt-8 pb-8">
         <div className="w-full max-w-[480px]">
           <div key={app.screen} className={transitioning ? 'screen-exit' : 'screen-enter'}>
-            {app.screen === 'upload' && (
-              <UploadScreen onFileReady={handleFileReady} />
-            )}
+            {app.screen === 'upload' && <UploadScreen onFileReady={handleFileReady} />}
             {app.screen === 'processing' && (
               <ProcessingScreen filename={app.filename} summary={streamingSummary} />
             )}
@@ -262,7 +271,6 @@ export default function ScreenRouter() {
           </div>
         </div>
       </main>
-
     </div>
   )
 }

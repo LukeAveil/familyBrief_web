@@ -62,7 +62,10 @@ describe('buildIcs', () => {
   })
 
   it('escapes special characters per RFC 5545', () => {
-    const ics = buildIcs([{ ...timed, title: 'Cake; sale, fun\\joy', notes: 'line1\nline2' }], DTSTAMP)!
+    const ics = buildIcs(
+      [{ ...timed, title: 'Cake; sale, fun\\joy', notes: 'line1\nline2' }],
+      DTSTAMP,
+    )!
     expect(ics).toContain('SUMMARY:Cake\\; sale\\, fun\\\\joy')
     expect(ics).toContain('DESCRIPTION:line1\\nline2')
   })
@@ -90,7 +93,13 @@ describe('encodeEvents / decodeEvents', () => {
   it('round-trips the minimal fields', () => {
     const decoded = decodeEvents(encodeEvents([full]))
     expect(decoded).toEqual([
-      { id: 3, title: 'Parents Evening', cal: full.cal, location: 'Main Hall', notes: 'Book a slot' },
+      {
+        id: 3,
+        title: 'Parents Evening',
+        cal: full.cal,
+        location: 'Main Hall',
+        notes: 'Book a slot',
+      },
     ])
   })
 
@@ -114,7 +123,11 @@ describe('encodeEvents / decodeEvents', () => {
   })
 
   it('rejects entries missing required fields or a cal separator', () => {
-    expect(decodeEvents(Buffer.from(JSON.stringify([{ id: 1, title: 'x' }]), 'utf-8').toString('base64url'))).toBeNull()
+    expect(
+      decodeEvents(
+        Buffer.from(JSON.stringify([{ id: 1, title: 'x' }]), 'utf-8').toString('base64url'),
+      ),
+    ).toBeNull()
     expect(decodeEvents(encodeEvents([{ ...full, cal: 'no-separator' }]))).toBeNull()
   })
 })

@@ -14,7 +14,7 @@ import {
 describe('buildAcceptAttr', () => {
   it('returns a comma-separated list of all accepted MIME types', () => {
     const result = buildAcceptAttr()
-    const expected = ACCEPTED_FILE_TYPES.map(t => t.mimeType).join(',')
+    const expected = ACCEPTED_FILE_TYPES.map((t) => t.mimeType).join(',')
     expect(result).toBe(expected)
   })
 
@@ -27,8 +27,7 @@ describe('buildAcceptAttr', () => {
 })
 
 describe('isAcceptedType', () => {
-  const makeFile = (type: string) =>
-    new File(['content'], 'test-file', { type })
+  const makeFile = (type: string) => new File(['content'], 'test-file', { type })
 
   it('accepts PDF', () => {
     expect(isAcceptedType(makeFile('application/pdf'))).toBe(true)
@@ -74,8 +73,11 @@ describe('acceptedExtensionsLabel', () => {
 
   it('lists extensions in uppercase', () => {
     const label = acceptedExtensionsLabel()
-    const words = label.replace(/,| and /g, ' ').trim().split(/\s+/)
-    words.forEach(w => expect(w).toBe(w.toUpperCase()))
+    const words = label
+      .replace(/,| and /g, ' ')
+      .trim()
+      .split(/\s+/)
+    words.forEach((w) => expect(w).toBe(w.toUpperCase()))
   })
 })
 
@@ -88,7 +90,9 @@ describe('MAX_FILE_SIZE_BYTES', () => {
 describe('validateMagicBytes', () => {
   function makeFileWithBytes(bytes: number[], mimeType: string): File {
     const content = new Uint8Array(Math.max(bytes.length, 12))
-    bytes.forEach((b, i) => { content[i] = b })
+    bytes.forEach((b, i) => {
+      content[i] = b
+    })
     return new File([content], 'test', { type: mimeType })
   }
 
@@ -98,15 +102,12 @@ describe('validateMagicBytes', () => {
   })
 
   it('returns true for a valid JPEG (first 3 bytes = FF D8 FF)', async () => {
-    const file = makeFileWithBytes([0xFF, 0xD8, 0xFF, 0xE0], 'image/jpeg')
+    const file = makeFileWithBytes([0xff, 0xd8, 0xff, 0xe0], 'image/jpeg')
     expect(await validateMagicBytes(file)).toBe(true)
   })
 
   it('returns true for a valid PNG', async () => {
-    const file = makeFileWithBytes(
-      [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
-      'image/png',
-    )
+    const file = makeFileWithBytes([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'image/png')
     expect(await validateMagicBytes(file)).toBe(true)
   })
 
@@ -132,13 +133,17 @@ describe('validateMagicBytes', () => {
 
   it('returns false for a file shorter than 12 bytes with no valid magic header', async () => {
     // 3 bytes — not enough to match any magic signature
-    const file = new File([new Uint8Array([0x25, 0x50, 0x44])], 'short.pdf', { type: 'application/pdf' })
+    const file = new File([new Uint8Array([0x25, 0x50, 0x44])], 'short.pdf', {
+      type: 'application/pdf',
+    })
     expect(await validateMagicBytes(file)).toBe(false)
   })
 
   it('returns true for a valid PDF even when the file is exactly 4 bytes', async () => {
     // Minimum possible valid PDF magic: exactly the 4 magic bytes, nothing else
-    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'min.pdf', { type: 'application/pdf' })
+    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'min.pdf', {
+      type: 'application/pdf',
+    })
     expect(await validateMagicBytes(file)).toBe(true)
   })
 })

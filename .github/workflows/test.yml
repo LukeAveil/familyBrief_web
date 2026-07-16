@@ -20,5 +20,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The harness's five layers, run cheapest/fastest-feedback first so a
+      # trivial failure (a stray format or lint error) stops the run before the
+      # slower type-check and test steps spend time. Each step fails the build on
+      # its own; there's no `continue-on-error`, so nothing slips through amber.
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
       - name: Run tests
         run: npm test

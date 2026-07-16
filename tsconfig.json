@@ -4,7 +4,24 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
+    // `strict` (already on) bundles the type-soundness flags: noImplicitAny,
+    // strictNullChecks, strictFunctionTypes, etc. Those catch "this could be
+    // undefined" / "this is implicitly any" bugs. The three flags below are NOT
+    // part of `strict` — they are code-hygiene checks TypeScript keeps separate
+    // because they can be noisy. We opt into them deliberately.
     "strict": true,
+    // Flags a declared local that is never read. Catches dead code and, more
+    // usefully, leftover bindings after a refactor (you renamed the thing you
+    // actually use and the old one is now silently unused).
+    "noUnusedLocals": true,
+    // Same, for function parameters. Prefix an intentionally-unused param with
+    // `_` to opt out case-by-case. Catches signature drift — an arg you stopped
+    // using but forgot to remove, or a callback taking the wrong positional arg.
+    "noUnusedParameters": true,
+    // Requires every code path in a function to return (or none to). Catches the
+    // classic bug where one branch of an if/switch forgets to return a value and
+    // the caller silently gets `undefined` — a runtime bug the other flags miss.
+    "noImplicitReturns": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",

@@ -82,7 +82,10 @@ const errorHeading = () => screen.queryByText(/read that one/i)
 describe('ScreenRouter — streaming', () => {
   it('renders the summary live and lands on results with events', async () => {
     fetchMock.mockResolvedValue(
-      sseResponse([deltaFrame('Here is your summary.'), doneFrame('Here is your summary.', [EVENT])]),
+      sseResponse([
+        deltaFrame('Here is your summary.'),
+        doneFrame('Here is your summary.', [EVENT]),
+      ]),
     )
     const { container } = render(<ScreenRouter />)
     await uploadPdf(container)
@@ -151,7 +154,7 @@ describe('ScreenRouter — error handling', () => {
     // handleFileReady navigates to processing before awaiting fetch; the AbortError
     // is swallowed, so we remain on processing and never show the error screen.
     expect(await screen.findByText('Reading your letter')).toBeInTheDocument()
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     expect(errorHeading()).not.toBeInTheDocument()
   })
 })

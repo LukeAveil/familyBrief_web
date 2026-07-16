@@ -34,7 +34,10 @@ export function GET(req: NextRequest) {
   }
 
   // ICS UTC timestamp for DTSTAMP, e.g. "20250709T120000Z".
-  const dtstamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+  const dtstamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '')
 
   const ics = buildIcs(events, dtstamp)
   if (!ics) {
