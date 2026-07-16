@@ -62,16 +62,20 @@ describe('extractEventsFromFile', () => {
   })
 
   it('maps a single extracted event to a CalendarEvent', async () => {
-    mockResponse(JSON.stringify([{
-      title: 'Sports Day',
-      date: '2025-06-26',
-      time: '09:30',
-      endTime: '12:00',
-      location: 'Playing Fields',
-      description: 'Wear PE kit',
-      category: 'school',
-      confidence: { title: 'high', datetime: 'high', location: 'high' },
-    }]))
+    mockResponse(
+      JSON.stringify([
+        {
+          title: 'Sports Day',
+          date: '2025-06-26',
+          time: '09:30',
+          endTime: '12:00',
+          location: 'Playing Fields',
+          description: 'Wear PE kit',
+          category: 'school',
+          confidence: { title: 'high', datetime: 'high', location: 'high' },
+        },
+      ]),
+    )
 
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.id).toBe(1)
@@ -84,45 +88,59 @@ describe('extractEventsFromFile', () => {
   })
 
   it('passes the model-assessed per-field confidence through', async () => {
-    mockResponse(JSON.stringify([{
-      title: 'Bake Sale',
-      date: '2025-06-26',
-      location: 'the hall',
-      category: 'social',
-      confidence: { title: 'high', datetime: 'medium', location: 'low' },
-    }]))
+    mockResponse(
+      JSON.stringify([
+        {
+          title: 'Bake Sale',
+          date: '2025-06-26',
+          location: 'the hall',
+          category: 'social',
+          confidence: { title: 'high', datetime: 'medium', location: 'low' },
+        },
+      ]),
+    )
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.confidence).toEqual({ title: 'high', datetime: 'medium', location: 'low' })
   })
 
   it('defaults missing/invalid confidence fields to medium (honest fallback)', async () => {
-    mockResponse(JSON.stringify([{
-      title: 'Mystery Event',
-      date: '2025-06-26',
-      category: 'other',
-      confidence: { title: 'bogus' },
-    }]))
+    mockResponse(
+      JSON.stringify([
+        {
+          title: 'Mystery Event',
+          date: '2025-06-26',
+          category: 'other',
+          confidence: { title: 'bogus' },
+        },
+      ]),
+    )
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     // No location on the event → no location confidence key.
     expect(event.confidence).toEqual({ title: 'medium', datetime: 'medium' })
   })
 
   it('omits location confidence when the event has no location', async () => {
-    mockResponse(JSON.stringify([{
-      title: 'Assembly',
-      date: '2025-06-26',
-      category: 'school',
-      confidence: { title: 'high', datetime: 'high', location: 'high' },
-    }]))
+    mockResponse(
+      JSON.stringify([
+        {
+          title: 'Assembly',
+          date: '2025-06-26',
+          category: 'school',
+          confidence: { title: 'high', datetime: 'high', location: 'high' },
+        },
+      ]),
+    )
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.confidence.location).toBeUndefined()
   })
 
   it('assigns sequential ids starting from 1', async () => {
-    mockResponse(JSON.stringify([
-      { title: 'Event A', date: '2025-06-01', category: 'school' },
-      { title: 'Event B', date: '2025-06-02', category: 'school' },
-    ]))
+    mockResponse(
+      JSON.stringify([
+        { title: 'Event A', date: '2025-06-01', category: 'school' },
+        { title: 'Event B', date: '2025-06-02', category: 'school' },
+      ]),
+    )
     const events = await extractEventsFromFile('base64data', 'image/jpeg')
     expect(events[0].id).toBe(1)
     expect(events[1].id).toBe(2)
@@ -147,61 +165,79 @@ describe('extractEventsFromFile', () => {
   })
 
   it('builds a timed cal string when time is provided', async () => {
-    mockResponse(JSON.stringify([{
-      title: 'Event',
-      date: '2025-06-26',
-      time: '09:30',
-      endTime: '12:00',
-      category: 'school',
-    }]))
+    mockResponse(
+      JSON.stringify([
+        {
+          title: 'Event',
+          date: '2025-06-26',
+          time: '09:30',
+          endTime: '12:00',
+          category: 'school',
+        },
+      ]),
+    )
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.cal).toBe('20250626T093000/20250626T120000')
   })
 
   it('throws when the Anthropic API call fails', async () => {
     mockCreate.mockRejectedValueOnce(new Error('rate limited'))
-    await expect(extractEventsFromFile('base64data', 'application/pdf'))
-      .rejects.toThrow('rate limited')
+    await expect(extractEventsFromFile('base64data', 'application/pdf')).rejects.toThrow(
+      'rate limited',
+    )
   })
 
   it('throws a descriptive error when Claude returns non-JSON', async () => {
     mockResponse('Sorry, I cannot process this document.')
-    await expect(extractEventsFromFile('base64data', 'application/pdf'))
-      .rejects.toThrow(/invalid JSON/i)
+    await expect(extractEventsFromFile('base64data', 'application/pdf')).rejects.toThrow(
+      /invalid JSON/i,
+    )
   })
 
   it('falls back to all-day cal string when time is malformed', async () => {
-    mockResponse(JSON.stringify([{
-      title: 'Event',
-      date: '2025-06-26',
-      time: 'noon',
-      category: 'school',
-    }]))
+    mockResponse(
+      JSON.stringify([
+        {
+          title: 'Event',
+          date: '2025-06-26',
+          time: 'noon',
+          category: 'school',
+        },
+      ]),
+    )
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.cal).toMatch(/^20250626\/20250627$/)
   })
 
   it('falls back to one hour after start when endTime is malformed', async () => {
-    mockResponse(JSON.stringify([{
-      title: 'Event',
-      date: '2025-06-26',
-      time: '09:30',
-      endTime: 'noon',
-      category: 'school',
-    }]))
+    mockResponse(
+      JSON.stringify([
+        {
+          title: 'Event',
+          date: '2025-06-26',
+          time: '09:30',
+          endTime: 'noon',
+          category: 'school',
+        },
+      ]),
+    )
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     // Should fall back to start+1h: 10:30
     expect(event.cal).toBe('20250626T093000/20250626T103000')
   })
 
   it('correctly zero-pads endTime components', async () => {
-    mockResponse(JSON.stringify([{
-      title: 'Event',
-      date: '2025-06-26',
-      time: '09:05',
-      endTime: '09:45',
-      category: 'school',
-    }]))
+    mockResponse(
+      JSON.stringify([
+        {
+          title: 'Event',
+          date: '2025-06-26',
+          time: '09:05',
+          endTime: '09:45',
+          category: 'school',
+        },
+      ]),
+    )
     const [event] = await extractEventsFromFile('base64data', 'application/pdf')
     expect(event.cal).toBe('20250626T090500/20250626T094500')
   })
@@ -247,11 +283,11 @@ describe('streamEventsFromFile', () => {
     )
 
     const chunks = await drain(streamEventsFromFile('b64', 'application/pdf'))
-    const deltas = chunks.filter(c => c.type === 'summary_delta')
-    const result = chunks.find(c => c.type === 'result')
+    const deltas = chunks.filter((c) => c.type === 'summary_delta')
+    const result = chunks.find((c) => c.type === 'result')
 
     // Only the pre-delimiter prose is streamed as summary.
-    expect(deltas.map(c => (c as { text: string }).text).join('')).toBe('Summary here.\n')
+    expect(deltas.map((c) => (c as { text: string }).text).join('')).toBe('Summary here.\n')
     // The delimiter itself never leaks into a summary delta.
     for (const d of deltas) expect((d as { text: string }).text).not.toContain('<')
 
@@ -272,13 +308,16 @@ describe('streamEventsFromFile', () => {
 
     const chunks = await drain(streamEventsFromFile('b64', 'application/pdf'))
     const summary = chunks
-      .filter(c => c.type === 'summary_delta')
-      .map(c => (c as { text: string }).text)
+      .filter((c) => c.type === 'summary_delta')
+      .map((c) => (c as { text: string }).text)
       .join('')
 
     expect(summary).toBe('This letter has news.\n')
     expect(summary).not.toContain('<')
-    const result = chunks.find(c => c.type === 'result') as Extract<StreamChunk, { type: 'result' }>
+    const result = chunks.find((c) => c.type === 'result') as Extract<
+      StreamChunk,
+      { type: 'result' }
+    >
     expect(result.events).toEqual([])
   })
 
@@ -288,7 +327,10 @@ describe('streamEventsFromFile', () => {
     mockStream.mockImplementationOnce(() => fakeStream([EVENT_JSON]))
 
     const chunks = await drain(streamEventsFromFile('b64', 'application/pdf'))
-    const result = chunks.find(c => c.type === 'result') as Extract<StreamChunk, { type: 'result' }>
+    const result = chunks.find((c) => c.type === 'result') as Extract<
+      StreamChunk,
+      { type: 'result' }
+    >
     expect(result.summary).toBe('')
     expect(result.events).toHaveLength(1)
     expect(result.events[0].title).toBe('Sports Day')
@@ -296,17 +338,19 @@ describe('streamEventsFromFile', () => {
 
   it('propagates an error thrown mid-stream (route wraps this in an error frame)', async () => {
     mockStream.mockImplementationOnce(() => ({
-      async *[Symbol.asyncIterator]() { throw new Error('rate limited') },
+      async *[Symbol.asyncIterator]() {
+        throw new Error('rate limited')
+      },
     }))
-    await expect(drain(streamEventsFromFile('b64', 'application/pdf')))
-      .rejects.toThrow('rate limited')
+    await expect(drain(streamEventsFromFile('b64', 'application/pdf'))).rejects.toThrow(
+      'rate limited',
+    )
   })
 
   it('throws a descriptive error when the JSON after the delimiter is invalid', async () => {
-    mockStream.mockImplementationOnce(() =>
-      fakeStream([`Summary.\n${EVENTS_DELIMITER}\nnot json`]),
+    mockStream.mockImplementationOnce(() => fakeStream([`Summary.\n${EVENTS_DELIMITER}\nnot json`]))
+    await expect(drain(streamEventsFromFile('b64', 'application/pdf'))).rejects.toThrow(
+      /invalid JSON/i,
     )
-    await expect(drain(streamEventsFromFile('b64', 'application/pdf')))
-      .rejects.toThrow(/invalid JSON/i)
   })
 })

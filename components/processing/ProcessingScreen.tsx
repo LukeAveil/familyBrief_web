@@ -24,18 +24,13 @@ export default function ProcessingScreen({ filename, summary }: ProcessingScreen
   return (
     <div className="flex flex-col items-center">
       <div className="bg-surface border border-line rounded-[28px] px-7 py-9 text-center shadow-md w-full">
-
         {/* Animated document illustration */}
         <div className="flex justify-center mb-7">
           <div className="proc-doc w-[68px] h-[86px] bg-surface rounded-[6px] border-[1.5px] border-line shadow-md relative overflow-hidden">
             <div className="scan-beam" />
             <div className="p-[10px_8px] flex flex-col gap-[6px]">
               {[100, 80, 55, 90, 70, 65].map((w, i) => (
-                <div
-                  key={i}
-                  className="h-[2.5px] bg-line rounded-sm"
-                  style={{ width: `${w}%` }}
-                />
+                <div key={i} className="h-[2.5px] bg-line rounded-sm" style={{ width: `${w}%` }} />
               ))}
             </div>
           </div>
@@ -55,13 +50,14 @@ export default function ProcessingScreen({ filename, summary }: ProcessingScreen
           {streaming ? (
             <>
               {summary}
-              <span className="proc-caret" aria-hidden>▋</span>
+              <span className="proc-caret" aria-hidden>
+                ▋
+              </span>
             </>
           ) : (
             <span className="text-ink-subtle">Scanning your document…</span>
           )}
         </p>
-
       </div>
     </div>
   )

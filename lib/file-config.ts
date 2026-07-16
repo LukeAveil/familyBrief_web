@@ -5,23 +5,23 @@ export interface FileType {
 
 export const ACCEPTED_FILE_TYPES: FileType[] = [
   { mimeType: 'application/pdf', extensions: ['pdf'] },
-  { mimeType: 'image/jpeg',      extensions: ['jpg', 'jpeg'] },
-  { mimeType: 'image/png',       extensions: ['png'] },
-  { mimeType: 'image/webp',      extensions: ['webp'] },
+  { mimeType: 'image/jpeg', extensions: ['jpg', 'jpeg'] },
+  { mimeType: 'image/png', extensions: ['png'] },
+  { mimeType: 'image/webp', extensions: ['webp'] },
 ]
 
 export const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024 // 20 MB
 
 export function buildAcceptAttr(): string {
-  return ACCEPTED_FILE_TYPES.map(t => t.mimeType).join(',')
+  return ACCEPTED_FILE_TYPES.map((t) => t.mimeType).join(',')
 }
 
 export function isAcceptedType(file: File): boolean {
-  return ACCEPTED_FILE_TYPES.some(t => t.mimeType === file.type)
+  return ACCEPTED_FILE_TYPES.some((t) => t.mimeType === file.type)
 }
 
 export function acceptedExtensionsLabel(): string {
-  const exts = ACCEPTED_FILE_TYPES.flatMap(t => t.extensions).map(e => e.toUpperCase())
+  const exts = ACCEPTED_FILE_TYPES.flatMap((t) => t.extensions).map((e) => e.toUpperCase())
   return [...exts.slice(0, -1), `and ${exts.at(-1)}`].join(', ')
 }
 
@@ -29,27 +29,13 @@ export async function validateMagicBytes(file: File): Promise<boolean> {
   const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer())
 
   // PDF: %PDF
-  if (
-    bytes[0] === 0x25 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x44 &&
-    bytes[3] === 0x46
-  ) return true
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) return true
 
   // JPEG: FF D8 FF
-  if (
-    bytes[0] === 0xFF &&
-    bytes[1] === 0xD8 &&
-    bytes[2] === 0xFF
-  ) return true
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return true
 
   // PNG: 89 50 4E 47
-  if (
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4E &&
-    bytes[3] === 0x47
-  ) return true
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return true
 
   // WebP: RIFF at 0-3 and WEBP at 8-11
   if (
@@ -61,7 +47,8 @@ export async function validateMagicBytes(file: File): Promise<boolean> {
     bytes[9] === 0x45 &&
     bytes[10] === 0x42 &&
     bytes[11] === 0x50
-  ) return true
+  )
+    return true
 
   return false
 }

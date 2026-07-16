@@ -120,8 +120,12 @@ interface ExtractedEvent {
 
 /** Coerce a model-supplied confidence value to a valid level. Missing or invalid
  *  input defaults to 'medium' — the honest fallback is to flag for a second look
- *  rather than falsely reassure with 'high'. */
-function sanitizeLevel(value: unknown): ConfidenceLevel {
+ *  rather than falsely reassure with 'high'.
+ *  Exported so the fallback contract can be unit-tested directly: this is the
+ *  seam where untrusted model output becomes a value the UI trusts, and a
+ *  regression here (e.g. defaulting to 'high') would silently mislead parents
+ *  without any type error. */
+export function sanitizeLevel(value: unknown): ConfidenceLevel {
   return value === 'high' || value === 'low' ? value : 'medium'
 }
 
@@ -330,8 +334,8 @@ export async function* streamEventsFromFile(
   // We rebuild the model's output incrementally in `full` and forward only the
   // part we're sure is summary. `emitted` tracks how much summary we've already
   // sent so each yield carries just the newly-revealed slice.
-  let full = ''            // everything the model has emitted so far
-  let emitted = 0          // how many chars of summary we've already forwarded
+  let full = '' // everything the model has emitted so far
+  let emitted = 0 // how many chars of summary we've already forwarded
   let sawDelimiter = false
 
   for await (const event of stream) {
@@ -360,7 +364,7 @@ export async function* streamEventsFromFile(
     //                                       delimiter found at index 4 → emit
     //                                       "Hi.\n" and stop. No fragment leaks.
     const safeEnd = sawDelimiter
-      ? at                                                    // emit up to the delimiter
+      ? at // emit up to the delimiter
       : Math.max(emitted, full.length - (EVENTS_DELIMITER.length - 1))
     if (safeEnd > emitted) {
       yield { type: 'summary_delta', text: full.slice(emitted, safeEnd) }

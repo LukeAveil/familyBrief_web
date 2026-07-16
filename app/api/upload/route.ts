@@ -31,11 +31,13 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000 // 60 seconds
 const rateLimitMap = new Map<string, number[]>()
 
 // Exposed for tests so per-suite isolation doesn't require module re-loading.
-export function clearRateLimitState() { rateLimitMap.clear() }
+export function clearRateLimitState() {
+  rateLimitMap.clear()
+}
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now()
-  const timestamps = (rateLimitMap.get(ip) ?? []).filter(t => now - t < RATE_LIMIT_WINDOW_MS)
+  const timestamps = (rateLimitMap.get(ip) ?? []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS)
   // Always write back the pruned list so stale entries don't accumulate in the map.
   rateLimitMap.set(ip, timestamps)
   if (timestamps.length >= RATE_LIMIT_MAX) return true

@@ -101,13 +101,17 @@ describe('EventCard — confidence flags', () => {
   })
 
   it('shows no confidence flags and no uncertain class when every field is high', () => {
-    const { container } = render(<EventCard event={withConfidence({ title: 'high', datetime: 'high', location: 'high' })} />)
+    const { container } = render(
+      <EventCard event={withConfidence({ title: 'high', datetime: 'high', location: 'high' })} />,
+    )
     expect(screen.queryByLabelText(/confidence in/i)).not.toBeInTheDocument()
     expect(container.querySelector('.event-card')).not.toHaveClass('uncertain')
   })
 
   it('flags a medium field with a Double-check label and the uncertain class', () => {
-    const { container } = render(<EventCard event={withConfidence({ title: 'high', datetime: 'medium', location: 'high' })} />)
+    const { container } = render(
+      <EventCard event={withConfidence({ title: 'high', datetime: 'medium', location: 'high' })} />,
+    )
     const flag = screen.getByLabelText('Medium confidence in the date and time')
     expect(flag).toHaveTextContent('Double-check')
     const card = container.querySelector('.event-card')!
@@ -116,7 +120,9 @@ describe('EventCard — confidence flags', () => {
   })
 
   it('escalates a low field with a Low confidence label and the uncertain-low class', () => {
-    const { container } = render(<EventCard event={withConfidence({ title: 'low', datetime: 'high', location: 'high' })} />)
+    const { container } = render(
+      <EventCard event={withConfidence({ title: 'low', datetime: 'high', location: 'high' })} />,
+    )
     const flag = screen.getByLabelText('Low confidence in the event name')
     expect(flag).toHaveTextContent(/low confidence/i)
     expect(container.querySelector('.event-card')).toHaveClass('uncertain', 'uncertain-low')

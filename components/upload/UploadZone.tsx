@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import DocIllustration from '@/components/DocIllustration'
 import { UploadIcon, CameraIcon } from '@/components/icons'
 import { buildAcceptAttr, isAcceptedType, acceptedExtensionsLabel } from '@/lib/file-config'
@@ -9,17 +9,44 @@ interface UploadZoneProps {
   onFileReady: (file: File) => void
 }
 
+// Whether this is a touch device — a browser-only signal read via
+// useSyncExternalStore, React's purpose-built API for subscribing to an external
+// store. This replaces the old useEffect+setState pattern (which ESLint flags as
+// set-state-in-effect): the server snapshot returns false so SSR and the first
+// client render agree (no hydration mismatch), the client snapshot then reflects
+// the real device, and the `change` subscription keeps it live if the input mode
+// changes. Defined at module scope so the function identities are stable across
+// renders (a requirement of useSyncExternalStore).
+const TOUCH_QUERY = '(hover: none) and (pointer: coarse)'
+
+function subscribeTouch(onChange: () => void): () => void {
+  if (typeof window === 'undefined' || !window.matchMedia) return () => {}
+  const mql = window.matchMedia(TOUCH_QUERY)
+  mql.addEventListener('change', onChange)
+  return () => mql.removeEventListener('change', onChange)
+}
+
+function getTouchSnapshot(): boolean {
+  return (
+    typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(TOUCH_QUERY).matches
+  )
+}
+
+// Server render has no device to query, so touch is assumed absent — matching
+// the client's first render and keeping hydration stable.
+function getTouchServerSnapshot(): boolean {
+  return false
+}
+
 export default function UploadZone({ onFileReady }: UploadZoneProps) {
   const [drag, setDrag] = useState(false)
-  const [isTouchDevice, setIsTouchDevice] = useState(false)
+  const isTouchDevice = useSyncExternalStore(
+    subscribeTouch,
+    getTouchSnapshot,
+    getTouchServerSnapshot,
+  )
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (window.matchMedia) {
-      setIsTouchDevice(window.matchMedia('(hover: none) and (pointer: coarse)').matches)
-    }
-  }, [])
 
   const handleFile = (f: File | null | undefined, input?: HTMLInputElement | null) => {
     if (!f) return
@@ -40,11 +67,19 @@ export default function UploadZone({ onFileReady }: UploadZoneProps) {
       tabIndex={0}
       aria-label="Upload a school letter"
       className={`upload-zone border-2 border-dashed border-line-strong rounded-[28px] bg-surface px-6 pt-9 pb-7 text-center cursor-pointer${drag ? ' drag-active' : ''}`}
-      onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDrag(true)
+      }}
       onDragLeave={() => setDrag(false)}
       onDrop={handleDrop}
       onClick={() => fileRef.current?.click()}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileRef.current?.click() } }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          fileRef.current?.click()
+        }
+      }}
     >
       {/* Standard file picker */}
       <input
@@ -74,7 +109,10 @@ export default function UploadZone({ onFileReady }: UploadZoneProps) {
       <div className="upload-actions flex gap-[10px] justify-center flex-wrap">
         <button
           className="btn-primary-base inline-flex items-center justify-center gap-[7px] bg-primary text-white px-5 py-[11px] rounded-lg text-[15px] font-semibold whitespace-nowrap"
-          onClick={(e) => { e.stopPropagation(); fileRef.current?.click() }}
+          onClick={(e) => {
+            e.stopPropagation()
+            fileRef.current?.click()
+          }}
         >
           <span className="w-[18px] h-[18px] flex items-center shrink-0">
             <UploadIcon />
@@ -84,7 +122,10 @@ export default function UploadZone({ onFileReady }: UploadZoneProps) {
         {isTouchDevice && (
           <button
             className="btn-secondary-base inline-flex items-center gap-[7px] text-primary px-5 py-[10px] rounded-lg text-[15px] font-medium border-[1.5px] border-line-strong whitespace-nowrap"
-            onClick={(e) => { e.stopPropagation(); cameraRef.current?.click() }}
+            onClick={(e) => {
+              e.stopPropagation()
+              cameraRef.current?.click()
+            }}
           >
             <span className="w-[18px] h-[18px] flex items-center shrink-0">
               <CameraIcon />

@@ -1,0 +1,7 @@
+# Generated, vendored, or lockfile content — Prettier should never touch these.
+node_modules
+.next
+build
+out
+coverage
+package-lock.json
