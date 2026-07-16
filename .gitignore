@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# AI eval harness output — per-run results, not source material (see HARNESS.md)
+/eval-results
+
 # next.js
 /.next/
 /out/
