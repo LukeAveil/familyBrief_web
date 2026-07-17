@@ -151,6 +151,13 @@ export default function ScreenRouter() {
       // Fresh session: clear both stores and put the events panel into its loading
       // state. Status is left null — it is driven exclusively by `status` frames
       // (the pipeline emits `reading` the instant the stream opens).
+      // This reset() also empties `chatMessages` (it's part of the left store's
+      // INITIAL), so a new letter starts a fresh conversation — no separate
+      // clearChat() call is needed here. Chat clears on upload rather than
+      // persisting because it's grounded in one specific letter's summary+events;
+      // carrying it to a different letter would answer questions against the wrong
+      // context. (clearChat() exists as an explicit action for callers that want
+      // to reset only the chat without touching the summary/events.)
       useLeftPanelStore.getState().reset()
       useEventsStore.getState().reset()
       useEventsStore.getState().startLoading(file.name)

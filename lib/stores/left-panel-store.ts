@@ -52,7 +52,14 @@ interface LeftPanelState {
   status: AgentStage | null
   /** Streaming-side error. Rendered in the left panel; never touches the right. */
   error: string | null
-  /** Reserved for chat (see above). Always [] in the MVP. */
+  /**
+   * Chat transcript for the conversational panel. Lives HERE (not its own store)
+   * on purpose: chat is part of the same conversational surface as the summary
+   * and must share its render isolation from the events panel. A store of its own
+   * would just be a second thing the right panel must promise never to import;
+   * folding it into this store makes that boundary structural, exactly as the
+   * summary/events split already is.
+   */
   chatMessages: ChatMessage[]
 
   /** Append a streamed summary slice (the live typing effect). */
@@ -63,9 +70,25 @@ interface LeftPanelState {
   setStatus: (stage: AgentStage | null) => void
   /** Record a streaming-side error. */
   setError: (message: string) => void
+
+  /** Add a finished user turn to the transcript. */
+  appendUserMessage: (content: string) => void
+  /** Add an EMPTY assistant turn, ready for streamed chunks to grow into. */
+  startAssistantMessage: () => void
+  /** Grow the last (assistant) message as chat tokens arrive. */
+  appendAssistantChunk: (text: string) => void
+  /** Empty the transcript — a new letter starts a new conversation. */
+  clearChat: () => void
+
   /** Reset to the initial state at the start of a new upload / on reset. */
   reset: () => void
 }
+
+// Monotonic id source for chat messages. React keys only need to be stable and
+// unique WITHIN this session; the transcript never persists, so a plain counter
+// is enough (and avoids Date.now()/Math.random(), which aren't needed here).
+let nextMessageId = 0
+const makeMessageId = () => `msg-${nextMessageId++}`
 
 const INITIAL = {
   summary: '',
@@ -80,5 +103,31 @@ export const useLeftPanelStore = create<LeftPanelState>((set) => ({
   setSummary: (full) => set({ summary: full }),
   setStatus: (stage) => set({ status: stage }),
   setError: (message) => set({ error: message }),
+
+  appendUserMessage: (content) =>
+    set((s) => ({
+      chatMessages: [...s.chatMessages, { id: makeMessageId(), role: 'user', text: content }],
+    })),
+
+  startAssistantMessage: () =>
+    set((s) => ({
+      chatMessages: [...s.chatMessages, { id: makeMessageId(), role: 'assistant', text: '' }],
+    })),
+
+  // Append-to-LAST, not a new message per chunk: the streamed reply is ONE
+  // assistant turn that grows token by token — exactly like `appendSummary`
+  // accumulates the summary. A message-per-chunk would render each token as its
+  // own bubble; instead the placeholder started by `startAssistantMessage` fills
+  // in place, so the transcript stays one bubble per turn.
+  appendAssistantChunk: (text) =>
+    set((s) => {
+      const last = s.chatMessages.at(-1)
+      if (!last) return s // nothing to append to — startAssistantMessage runs first
+      const updated = { ...last, text: last.text + text }
+      return { chatMessages: [...s.chatMessages.slice(0, -1), updated] }
+    }),
+
+  clearChat: () => set({ chatMessages: [] }),
+
   reset: () => set({ ...INITIAL }),
 }))

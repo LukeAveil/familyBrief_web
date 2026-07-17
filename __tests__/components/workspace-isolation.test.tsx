@@ -82,3 +82,49 @@ it('the events panel does not re-render while the summary streams or status chan
   expect(rightCommits).toBe(baseline + 1)
   expect(screen.getByText('Found 1 event')).toBeInTheDocument()
 })
+
+it('the events panel does not re-render while chat streams (phase three)', () => {
+  // A finished extraction: events present, status complete (so the chat input is
+  // live — ChatPanel only shows its input once `status === 'complete'`).
+  act(() => {
+    useEventsStore.getState().startLoading('letter.pdf')
+    useEventsStore.getState().setEvents([EVENT])
+    useLeftPanelStore.getState().setSummary('Sports day is on Thursday.')
+    useLeftPanelStore.getState().setStatus('complete')
+  })
+
+  let rightCommits = 0
+  render(
+    <>
+      <LeftPanel onRetry={() => {}} />
+      <Profiler id="right" onRender={() => (rightCommits += 1)}>
+        <RightPanel onReset={() => {}} />
+      </Profiler>
+    </>,
+  )
+  const baseline = rightCommits
+  expect(baseline).toBeGreaterThan(0)
+
+  // A full chat exchange: user turn, an empty assistant turn, then 20 streamed
+  // reply chunks growing that one message — exactly the traffic a live reply
+  // produces. All of it lands in the LEFT store.
+  act(() => {
+    useLeftPanelStore.getState().appendUserMessage('What time is sports day?')
+    useLeftPanelStore.getState().startAssistantMessage()
+    for (let i = 0; i < 20; i++) {
+      useLeftPanelStore.getState().appendAssistantChunk(`word${i} `)
+    }
+  })
+
+  // The left panel genuinely rendered the streamed reply…
+  expect(screen.getByText(/word19/)).toBeInTheDocument()
+  // …while the right panel committed ZERO additional times across the whole
+  // exchange. This is the phase-three claim: chat is on the isolated side.
+  expect(rightCommits).toBe(baseline)
+
+  // And clearing the chat (as a new upload would) still doesn't touch the right.
+  act(() => {
+    useLeftPanelStore.getState().clearChat()
+  })
+  expect(rightCommits).toBe(baseline)
+})

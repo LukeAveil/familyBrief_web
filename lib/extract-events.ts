@@ -26,7 +26,9 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { CalendarEvent, ConfidenceLevel, EventConfidence } from '@/types'
 
-const MODEL = 'claude-sonnet-4-6'
+// Exported so the chat route reuses the EXACT same model as extraction — one
+// source of truth, no chance of the two paths drifting onto different models.
+export const MODEL = 'claude-sonnet-4-6'
 // Bumped from 1024 → 2048 to leave room for the streamed summary prose that now
 // precedes the JSON array (the event payload itself is small).
 const MAX_TOKENS = 2048
@@ -48,6 +50,12 @@ const getClient = () => {
   }
   return _client
 }
+
+// Exported client accessor for OTHER server routes (the chat route) that need the
+// same lazily-constructed singleton — same API key source, same lazy-so-imports-
+// never-throw guarantee. Extraction keeps using the private `getClient` directly;
+// this is just the public name for the identical thing.
+export const getAnthropicClient = getClient
 
 // ─── Prompt ────────────────────────────────────────────────────────────────
 

@@ -360,7 +360,99 @@ contains failures.
   this store; the layout already leaves room under the status line for the input.
   Declaring the shape now means adding chat is additive — new actions on an
   existing store — rather than a restructure of the panel/store boundary.
+  ← **done in phase three, below.**
 - **A side-by-side layout.** The panels stack in a column (stream on top) because
   the app is mobile-first and narrow. Going horizontal on wide viewports is a
   layout-only change in `WorkspaceShell` — neither panel nor either store knows
   or cares how the two are arranged.
+
+---
+
+# Phase three: session-aware chat
+
+Chat sits under the agent status in the left panel: a parent uploads a letter,
+gets the summary and events, then asks follow-up questions ("what time is the bake
+sale?", "do I need to sign anything?"). The reply streams in below the previous
+turns. It's the same conversational surface as the summary, so it lives in the
+same store and inherits the same render isolation from the events panel.
+
+The whole point of this phase is that it's **additive**. It reuses the streaming
+pattern (`app/api/chat/route.ts` mirrors `app/api/upload/route.ts` — SSE over a
+`ReadableStream`), the SDK seam (`getAnthropicClient` + `MODEL`, exported from
+`lib/extract-events` so chat and extraction can't drift onto different models),
+the client read loop (`fetch` + `getReader` + `parseFrame`), and the reserved
+`chatMessages` slice. No new store, no new model, no new dependency.
+
+## How context is passed
+
+The API is **stateless** — it holds no session. Every request carries everything
+it needs and the route rebuilds the prompt from scratch: `{ letter, events,
+messages }`, where the client sends the letter summary, the extracted events, and
+the **entire** turn history on **every** call.
+
+That context is split two ways for a reason:
+
+- **Letter summary + events → the `system` prompt.** They're stable ground truth
+  for the whole conversation. They don't change between turns, and the model should
+  treat them as the authoritative source to answer from, not as a user utterance to
+  weigh. `system` says exactly that: this is the world, answer within it.
+- **The turns → `messages`.** They grow and change every request — they _are_ the
+  conversation, the variable part of the call.
+
+The "letter" is really the **summary**, not the full letter text. The letter is
+never transcribed to text anywhere — at upload it goes to the model as a PDF/image,
+and the only letter-derived text the client holds is the streamed summary. So the
+summary is what chat answers from, and the system prompt labels it honestly and
+tells the model to admit when an answer isn't in it rather than invent one.
+
+## The design decisions, and why
+
+- **Full context on every call, no truncation.** The stateless API means the whole
+  history rides along each time. We deliberately do **not** trim or summarise old
+  turns. If a conversation ever grew long enough to strain the context window,
+  that's a real design decision worth having out loud — not something to silently
+  paper over with a truncation heuristic that quietly drops the turn that mattered.
+  For the letter-sized conversations this is built for, full context is correct and
+  simplest.
+
+- **Chat state lives in `useLeftPanelStore`, not its own store.** Chat is part of
+  the same conversational surface as the summary and needs the same isolation from
+  the events panel. A store of its own would just be a second thing `RightPanel`
+  must promise never to import; folding it into the left store makes that boundary
+  structural, exactly as the summary/events split already is. `ChatPanel` subscribes
+  only to the left store; it reads the events it needs to _send_ via
+  `useEventsStore.getState()` — a one-shot read at submit, never a subscription — so
+  chat activity can't re-render the events panel and vice versa. The `RightPanel`
+  commit counter stays flat while chat streams, the same guarantee the summary has.
+
+- **The streamed reply grows one message, not one-per-chunk.** `startAssistantMessage`
+  pushes an empty assistant turn and `appendAssistantChunk` grows its `text` in
+  place — the same accumulate pattern as `appendSummary`. A message per token would
+  render each chunk as its own bubble; instead the reply fills a single bubble as it
+  types out.
+
+- **Input disabled while streaming.** The API is stateless and we send the whole
+  history each call, so two overlapping requests would race on the transcript. The
+  input (and send button) disable for the duration of a reply, so a second question
+  can't be fired mid-response.
+
+- **Chat clears on upload, not persists across letters.** A new letter calls the
+  left store's `reset()`, which empties `chatMessages` (it's part of `INITIAL`). Chat
+  is grounded in one specific letter's summary + events; carrying it to a different
+  letter would answer new questions against the wrong context. A dedicated
+  `clearChat()` action also exists for callers that want to reset only the chat.
+
+## What it deliberately leaves for later
+
+- **Prompt caching.** The letter summary + events are re-sent in the `system` prompt
+  on every turn and are identical across a conversation — a textbook case for
+  Anthropic prompt caching (mark the stable prefix as cacheable, pay for it once).
+  Left unbuilt on purpose so the base streaming pattern stays the focus; it's the
+  obvious first optimisation.
+- **Full letter text as context.** Chat answers from the summary, which is lossy. A
+  faithful version would have the extraction pipeline also emit a verbatim
+  transcription, stored client-side and sent as the real `letter`. That touches the
+  phase-two extraction prompt and stream contract and costs more tokens per
+  extraction, so it's a deliberate scope call, not an oversight.
+- **Session persistence.** Chat evaporates on refresh by design — no storage, no
+  history across visits.
