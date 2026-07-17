@@ -22,6 +22,7 @@ import { useCallback } from 'react'
 import type { AgentStage } from '@/lib/extract-events'
 import { useLeftPanelStore } from '@/lib/stores/left-panel-store'
 import { AlertIcon, RefreshIcon } from '@/components/icons'
+import ChatPanel from '@/components/workspace/ChatPanel'
 
 interface LeftPanelProps {
   /** Re-run the last upload after a streaming-side error (orchestration). */
@@ -111,14 +112,15 @@ export default function LeftPanel({ onRetry }: LeftPanelProps) {
               {statusLine}
             </p>
           )}
+
+          {/* Chat drops into the slot that was reserved here, under the status
+              line. It owns its own subscriptions (transcript + input state); this
+              panel still reads only `useLeftPanelStore`. Rendered inside the
+              non-error branch so a streaming-side failure hides chat too — there's
+              nothing to ask about if the letter couldn't be read. */}
+          <ChatPanel />
         </>
       )}
-
-      {/* FOLLOW-ON SLOT — the chat input will mount here, under the status line.
-          Intentionally empty in the MVP: the layout already leaves room for it, so
-          adding the input later is a drop-in, not a restructure. Do NOT build it
-          now (out of scope). The chat transcript will live in useLeftPanelStore
-          (see its `chatMessages` slice), keeping chat on this same isolated side. */}
     </section>
   )
 }
