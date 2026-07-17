@@ -1,23 +1,17 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { TextEncoder, TextDecoder } from 'util'
 import ScreenRouter from '@/components/ScreenRouter'
 import { useLeftPanelStore } from '@/lib/stores/left-panel-store'
 import { useEventsStore } from '@/lib/stores/events-store'
 import type { CalendarEvent } from '@/types'
 
-// jsdom doesn't always provide the Web encoders the SSE reader relies on.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-if (!global.TextEncoder) (global as any).TextEncoder = TextEncoder
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-if (!global.TextDecoder) (global as any).TextDecoder = TextDecoder
+// TextEncoder/TextDecoder are polyfilled globally in jest.setup.ts.
 
 // ─── fetch + SSE mocking ────────────────────────────────────────────────────
 const fetchMock = jest.fn()
 beforeEach(() => {
   fetchMock.mockReset()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(global as any).fetch = fetchMock
+  Object.assign(global, { fetch: fetchMock })
   // The stores are module-level singletons; reset both between tests so state
   // never leaks from one case to the next.
   useLeftPanelStore.getState().reset()

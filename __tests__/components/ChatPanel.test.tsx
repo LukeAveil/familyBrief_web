@@ -1,15 +1,11 @@
 import { StrictMode } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { TextEncoder, TextDecoder } from 'util'
 import ChatPanel from '@/components/workspace/ChatPanel'
 import { useLeftPanelStore } from '@/lib/stores/left-panel-store'
 import { useEventsStore } from '@/lib/stores/events-store'
 
-// jsdom omits the Web encoders the SSE reader relies on. Provide them via
-// Object.assign (which doesn't constrain source keys to the target's types), so
-// no `as any` cast is needed to widen `global`.
-Object.assign(global, { TextEncoder, TextDecoder })
+// TextEncoder/TextDecoder are polyfilled globally in jest.setup.ts.
 
 // ─── fetch + SSE mocking (same shape as ScreenRouter.test) ───────────────────
 const fetchMock = jest.fn()
