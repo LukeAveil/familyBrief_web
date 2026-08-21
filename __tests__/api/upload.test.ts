@@ -13,12 +13,30 @@ jest.mock('@anthropic-ai/sdk', () => ({
   })),
 }))
 
+// Mock the Auth.js server helper. All existing tests were written when the
+// route was public; keeping them green means auth() must return a plausible
+// signed-in session by default. Individual tests can override this (see the
+// "auth gate" block below) to exercise the 401 path.
+//
+// Mocked via relative path — jest.mock's hoisted resolver doesn't apply the
+// `@/*` moduleNameMapper for project-root files.
+const mockAuth = jest.fn()
+jest.mock('../../auth', () => ({
+  __esModule: true,
+  auth: (...args: unknown[]) => mockAuth(...args),
+}))
+
 import { NextRequest } from 'next/server'
 import { POST } from '@/app/api/upload/route'
 import { MAX_FILE_SIZE_BYTES } from '@/lib/file-config'
 import { EVENTS_DELIMITER } from '@/lib/extract-events'
 
-beforeEach(() => mockStream.mockReset())
+beforeEach(() => {
+  mockStream.mockReset()
+  mockAuth.mockReset()
+  // Default: signed-in. Individual tests override for 401 checks.
+  mockAuth.mockResolvedValue({ user: { id: '1', email: 'test@example.com' } })
+})
 
 // Provide a dummy API key so the env-var guard in getClient() doesn't throw.
 // The Anthropic SDK itself is mocked above so no real key is needed.
@@ -270,5 +288,43 @@ describe('POST /api/upload — rate limiting', () => {
     const body = await res.json()
     expect(body.ok).toBe(false)
     expect(body.error).toBe('Too many requests. Please wait a moment.')
+  })
+})
+
+// ─── Auth gate tests ──────────────────────────────────────────────────────────
+
+describe('POST /api/upload — auth gate', () => {
+  it('returns 401 when no session is present', async () => {
+    mockAuth.mockResolvedValueOnce(null)
+    const fd = makeFormData(makePdf())
+    const res = await POST(makeRequest(fd))
+    expect(res.status).toBe(401)
+    expect(await res.text()).toBe('Unauthorized')
+  })
+
+  it('returns 401 when the session has no user (edge case)', async () => {
+    mockAuth.mockResolvedValueOnce({} as { user?: never })
+    const fd = makeFormData(makePdf())
+    const res = await POST(makeRequest(fd))
+    expect(res.status).toBe(401)
+  })
+
+  it('runs the auth check before rate-limiting (an unauth request does not consume the IP quota)', async () => {
+    const ip = uniqueIp()
+    mockAuth.mockResolvedValue(null)
+    // Fire 10 anonymous requests — all 401, none should count against the
+    // per-IP rate limit (which would otherwise trip at 5).
+    for (let i = 0; i < 10; i++) {
+      const fd = makeFormData(makePdf(), 'file')
+      const res = await POST(makeRequest(fd, ip))
+      expect(res.status).toBe(401)
+    }
+    // Now flip to signed-in from the same IP — the request should proceed
+    // (get past auth), then still land within the rate limit budget.
+    mockAuth.mockResolvedValue({ user: { id: '1' } })
+    mockSuccess()
+    const fd = makeFormData(makePdf())
+    const res = await POST(makeRequest(fd, ip))
+    expect(res.status).toBe(200)
   })
 })

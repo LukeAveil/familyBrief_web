@@ -20,6 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/auth'
 import { isAcceptedType, MAX_FILE_SIZE_BYTES, validateMagicBytes } from '@/lib/file-config'
 import { streamEventsFromFile } from '@/lib/extract-events'
 
@@ -48,6 +49,16 @@ function isRateLimited(ip: string): boolean {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Auth gate. Runs FIRST — before rate-limiting, before validation. The proxy
+  // catches the common "no cookie" case cheaply; this is the authoritative
+  // check against the sessions table. Anonymous requests get 401 with a plain
+  // text body (matches the sanitized error style used elsewhere in this route
+  // and avoids leaking session shape via a JSON body).
+  const session = await auth()
+  if (!session?.user) {
+    return new NextResponse('Unauthorized', { status: 401 })
+  }
+
   // Use the rightmost x-forwarded-for entry — Vercel appends the connecting IP
   // there, so it cannot be spoofed by a client prepending fake IPs.
   const forwarded = req.headers.get('x-forwarded-for')
