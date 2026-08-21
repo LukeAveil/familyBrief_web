@@ -13,11 +13,15 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "eval": "tsx scripts/eval.ts"
+    "eval": "tsx scripts/eval.ts",
+    "db:migrate": "tsx scripts/apply-migrations.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.0",
+    "@auth/pg-adapter": "^1.11.3",
     "next": "16.2.7",
+    "next-auth": "^5.0.0-beta.32",
+    "pg": "^8.23.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "zustand": "^5.0.14"
@@ -30,6 +34,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

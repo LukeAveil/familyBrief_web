@@ -34,6 +34,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/auth'
 import type { CalendarEvent } from '@/types'
 import { getAnthropicClient, MODEL } from '@/lib/extract-events'
 
@@ -72,6 +73,14 @@ function buildSystemPrompt(letter: string, events: CalendarEvent[]): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Auth gate. Same shape as /api/upload — runs before validation so an
+  // anonymous request never touches the JSON body or the model. See upload
+  // route for why the 401 body is plain text.
+  const session = await auth()
+  if (!session?.user) {
+    return new NextResponse('Unauthorized', { status: 401 })
+  }
+
   // ── Validate BEFORE streaming (see header note on the locked-200 status) ──────
   let body: ChatRequestBody
   try {
