@@ -51,6 +51,37 @@ function sseResponse(
   }
 }
 
+/**
+ * A non-OK response carrying the route's own `{ ok: false, error }` JSON — what
+ * the rate limiter and the validation guards actually return.
+ */
+function jsonErrorResponse(status: number, body: unknown) {
+  return {
+    ok: false,
+    status,
+    headers: {
+      get: (h: string) => (h.toLowerCase() === 'content-type' ? 'application/json' : null),
+    },
+    body: null,
+    json: () => Promise.resolve(body),
+  }
+}
+
+/**
+ * A non-OK response whose body is NOT our JSON — a platform-level rejection that
+ * never reached the route. `json()` rejects, exactly as `Response.json()` does on
+ * an HTML body.
+ */
+function htmlErrorResponse(status: number) {
+  return {
+    ok: false,
+    status,
+    headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? 'text/html' : null) },
+    body: null,
+    json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON at position 0')),
+  }
+}
+
 const statusFrame = (stage: string) => `event: status\ndata: ${JSON.stringify({ stage })}\n\n`
 const deltaFrame = (text: string) => `event: delta\ndata: ${JSON.stringify({ text })}\n\n`
 const doneFrame = (summary: string, events: unknown) =>
@@ -168,6 +199,45 @@ describe('ScreenRouter — panel-scoped errors', () => {
     await uploadPdf(container)
 
     expect(await screen.findByText(/couldn.t read that one/i)).toBeInTheDocument()
+  })
+
+  // ─── The server's own explanation must reach the parent ─────────────────────
+  // These all used to render one identical sentence, which is why a real bug was
+  // impossible to diagnose from the UI. Each failure now says what happened.
+
+  it("shows the route's own error message for a rejected request", async () => {
+    fetchMock.mockResolvedValue(
+      jsonErrorResponse(429, { ok: false, error: 'Too many requests. Please wait a moment.' }),
+    )
+    const { container } = render(<ScreenRouter />)
+    await uploadPdf(container)
+
+    expect(await screen.findByText(/too many requests/i)).toBeInTheDocument()
+    // The generic fallback must NOT be what the parent sees when we know better.
+    expect(screen.queryByText(/we couldn.t read that letter/i)).not.toBeInTheDocument()
+  })
+
+  it('falls back to status-derived copy when the body is not our JSON', async () => {
+    // A rejection at the platform edge (Vercel 413s any oversized request body)
+    // never reaches the route, so the body is HTML — res.json() throws. That must
+    // degrade to something honest rather than blowing up the handler.
+    fetchMock.mockResolvedValue(htmlErrorResponse(413))
+    const { container } = render(<ScreenRouter />)
+    await uploadPdf(container)
+
+    expect(await screen.findByText(/too large to send/i)).toBeInTheDocument()
+  })
+
+  it('surfaces the truncation notice from an in-band error frame', async () => {
+    const notice =
+      'That letter has more events than we could read in one go. Try splitting it into two uploads.'
+    fetchMock.mockResolvedValue(sseResponse([errorFrame(notice)]))
+    const { container } = render(<ScreenRouter />)
+    await uploadPdf(container)
+
+    // The whole point of the truncation path: the parent is told the letter was
+    // too dense and what to do about it, instead of "please try again" forever.
+    expect(await screen.findByText(/more events than we could read/i)).toBeInTheDocument()
   })
 
   it('treats an aborted fetch as normal — no error is shown', async () => {

@@ -17,6 +17,7 @@ import {
   streamEventsFromFile,
   splitOnDelimiter,
   EVENTS_DELIMITER,
+  TruncatedExtractionError,
   type StreamChunk,
 } from '@/lib/extract-events'
 
@@ -30,11 +31,20 @@ function mockResponse(text: string) {
 
 // A fake MessageStream: async-iterable yielding text_delta events for each of the
 // given chunk strings, exactly the shape streamEventsFromFile consumes.
-function fakeStream(chunks: string[]) {
+// `end` optionally appends the SDK's terminal message_delta frame, which is where
+// stop_reason and the output token count arrive.
+function fakeStream(chunks: string[], end?: { stopReason: string; outputTokens?: number }) {
   return {
     async *[Symbol.asyncIterator]() {
       for (const text of chunks) {
         yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }
+      }
+      if (end) {
+        yield {
+          type: 'message_delta',
+          delta: { stop_reason: end.stopReason, stop_sequence: null },
+          usage: { output_tokens: end.outputTokens ?? 0 },
+        }
       }
     },
   }
@@ -352,5 +362,60 @@ describe('streamEventsFromFile', () => {
     await expect(drain(streamEventsFromFile('b64', 'application/pdf'))).rejects.toThrow(
       /invalid JSON/i,
     )
+  })
+
+  // ─── Truncation ─────────────────────────────────────────────────────────────
+  // A letter with more events than the token budget allows gets its JSON array cut
+  // off mid-object. The cause is a budget, the symptom is a parse failure, and the
+  // two want different responses — so they must not be conflated.
+
+  it('throws TruncatedExtractionError when the model stops on max_tokens', async () => {
+    mockStream.mockImplementationOnce(() =>
+      fakeStream([`Summary.\n${EVENTS_DELIMITER}\n[{"title":"Sports Day","da`], {
+        stopReason: 'max_tokens',
+        outputTokens: 16000,
+      }),
+    )
+    await expect(drain(streamEventsFromFile('b64', 'application/pdf'))).rejects.toThrow(
+      TruncatedExtractionError,
+    )
+  })
+
+  it('does not misreport truncation as invalid JSON', async () => {
+    mockStream.mockImplementationOnce(() =>
+      fakeStream([`Summary.\n${EVENTS_DELIMITER}\n[{"title":"Sports Day","da`], {
+        stopReason: 'max_tokens',
+      }),
+    )
+    // The truncated array is unparseable, so without the stop_reason check this
+    // would surface as "invalid JSON" — a diagnosis pointing at the wrong problem.
+    await expect(drain(streamEventsFromFile('b64', 'application/pdf'))).rejects.not.toThrow(
+      /invalid JSON/i,
+    )
+  })
+
+  it('surfaces stop_reason and output tokens on the result for logging', async () => {
+    mockStream.mockImplementationOnce(() =>
+      fakeStream([`Summary.\n${EVENTS_DELIMITER}\n${EVENT_JSON}`], {
+        stopReason: 'end_turn',
+        outputTokens: 842,
+      }),
+    )
+    const chunks = await drain(streamEventsFromFile('b64', 'application/pdf'))
+    const result = chunks.find((c) => c.type === 'result')
+
+    expect(result).toMatchObject({ stopReason: 'end_turn', outputTokens: 842 })
+  })
+
+  it('still completes when the stream omits a message_delta frame', async () => {
+    // Older mocks and any stream that ends without the terminal frame must keep
+    // working — an absent stop_reason means "no evidence of truncation", not
+    // "assume the worst".
+    mockStream.mockImplementationOnce(() =>
+      fakeStream([`Summary.\n${EVENTS_DELIMITER}\n${EVENT_JSON}`]),
+    )
+    const chunks = await drain(streamEventsFromFile('b64', 'application/pdf'))
+
+    expect(chunks.some((c) => c.type === 'result')).toBe(true)
   })
 })

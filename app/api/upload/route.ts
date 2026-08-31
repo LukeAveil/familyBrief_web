@@ -15,13 +15,24 @@
  *   event: error  data: {"message": "<sanitized>"}           (terminal failure)
  *
  * Because the status is already 200 once streaming starts, a mid-stream failure
- * can't become a 500 — it's delivered as an in-band `error` event instead, with
- * a generic message so raw SDK errors never leak to the client.
+ * can't become a 500 — it's delivered as an in-band `error` event instead. The
+ * message is either one we authored (truncation, which names a real limit the
+ * parent can act on) or a generic fallback, so raw SDK text never reaches the
+ * client. It does reach the server log; see lib/log.
+ *
+ * Every exit path — including the 4xx rejections — emits one structured log line
+ * carrying Vercel's request ID, so a dashboard entry can be traced to its cause.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { isAcceptedType, MAX_FILE_SIZE_BYTES, validateMagicBytes } from '@/lib/file-config'
-import { streamEventsFromFile } from '@/lib/extract-events'
+import {
+  isAcceptedType,
+  MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_LABEL,
+  validateMagicBytes,
+} from '@/lib/file-config'
+import { streamEventsFromFile, TruncatedExtractionError } from '@/lib/extract-events'
+import { createLogger, requestId } from '@/lib/log'
 
 // ─── Rate limiting ────────────────────────────────────────────────────────────
 
@@ -48,6 +59,18 @@ function isRateLimited(ip: string): boolean {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const log = createLogger('upload', requestId(req.headers))
+  const startedAt = Date.now()
+
+  // Every rejection goes through here so none can return silently — the reason a
+  // failed upload used to show up in the dashboard as a bare status code with
+  // nothing behind it. `reason` is a stable machine-readable slug (filterable in
+  // the log drain); `error` is the human copy the client will now surface.
+  const reject = (reason: string, status: number, error: string, fields = {}) => {
+    log('error', 'rejected', { reason, status, ...fields })
+    return NextResponse.json({ ok: false, error }, { status })
+  }
+
   // Use the rightmost x-forwarded-for entry — Vercel appends the connecting IP
   // there, so it cannot be spoofed by a client prepending fake IPs.
   const forwarded = req.headers.get('x-forwarded-for')
@@ -57,30 +80,30 @@ export async function POST(req: NextRequest) {
     'unknown'
 
   if (isRateLimited(ip)) {
-    return NextResponse.json(
-      { ok: false, error: 'Too many requests. Please wait a moment.' },
-      { status: 429 },
-    )
+    return reject('rate_limit', 429, 'Too many requests. Please wait a moment.')
   }
 
   const formData = await req.formData()
   const file = formData.get('file')
 
   if (!(file instanceof File)) {
-    return NextResponse.json({ ok: false, error: 'No file received' }, { status: 400 })
+    return reject('no_file', 400, 'No file received')
   }
+
+  // Shape only — never the filename, which routinely names a child. See lib/log.
+  const meta = { size: file.size, mime: file.type }
+
   if (!isAcceptedType(file)) {
-    return NextResponse.json({ ok: false, error: 'Unsupported file type' }, { status: 415 })
+    return reject('bad_type', 415, 'Unsupported file type', meta)
   }
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    return NextResponse.json({ ok: false, error: 'File too large (max 20 MB)' }, { status: 413 })
+    return reject('too_large', 413, `File too large (max ${MAX_FILE_SIZE_LABEL})`, meta)
   }
   if (!(await validateMagicBytes(file))) {
-    return NextResponse.json(
-      { ok: false, error: 'File content does not match its type' },
-      { status: 415 },
-    )
+    return reject('magic_bytes', 415, 'File content does not match its type', meta)
   }
+
+  log('log', 'started', meta)
 
   // All validation and rate-limiting above returns plain JSON with the right
   // status code. Once we commit to streaming below, the status is locked to 200
@@ -107,15 +130,43 @@ export async function POST(req: NextRequest) {
             // ignore it, and the `delta`/`done`/`error` contract is unchanged.
             controller.enqueue(sse('status', { stage: chunk.stage }))
           } else {
+            // Log the token spend on EVERY success, not just on failure. This is
+            // what turns "are we near the ceiling?" into a dashboard query — the
+            // original truncation bug would have been one glance at an
+            // outputTokens that had flatlined at the max.
+            log('log', 'completed', {
+              eventCount: chunk.events.length,
+              stopReason: chunk.stopReason,
+              outputTokens: chunk.outputTokens,
+              durationMs: Date.now() - startedAt,
+            })
+            // Diagnostics stay server-side; the SSE contract is unchanged.
             controller.enqueue(sse('done', { summary: chunk.summary, events: chunk.events }))
           }
         }
       } catch (err) {
         // The 200 + headers are already committed, so we can't switch to a 500.
-        // Deliver a *sanitized* error in-band (never leak SDK error text) and let
-        // the client surface a recoverable error state.
-        console.error('[upload] streaming extraction failed:', err)
-        controller.enqueue(sse('error', { message: 'Extraction failed. Please try again.' }))
+        // Deliver the error in-band and let the client surface a recoverable state.
+        const durationMs = Date.now() - startedAt
+
+        // Truncation is the one failure with a message worth showing: we wrote it,
+        // it names a real limit, and it tells the parent what to do about it. Every
+        // other error stays generic so raw SDK text can never reach the client.
+        if (err instanceof TruncatedExtractionError) {
+          log('error', 'truncated', { durationMs })
+          controller.enqueue(
+            sse('error', {
+              message:
+                'That letter has more events than we could read in one go. Try splitting it into two uploads.',
+            }),
+          )
+        } else {
+          log('error', 'failed', {
+            message: err instanceof Error ? err.message : String(err),
+            durationMs,
+          })
+          controller.enqueue(sse('error', { message: 'Extraction failed. Please try again.' }))
+        }
       } finally {
         controller.close()
       }

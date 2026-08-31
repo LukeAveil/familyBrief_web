@@ -36,6 +36,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { CalendarEvent } from '@/types'
 import { getAnthropicClient, MODEL } from '@/lib/extract-events'
+import { createLogger, requestId } from '@/lib/log'
 
 // Same budget shape as extraction; chat replies are short prose, no JSON payload.
 const MAX_TOKENS = 1024
@@ -72,30 +73,39 @@ function buildSystemPrompt(letter: string, events: CalendarEvent[]): string {
 }
 
 export async function POST(req: NextRequest) {
+  const log = createLogger('chat', requestId(req.headers))
+  const startedAt = Date.now()
+
+  // Mirrors the upload route: no rejection returns silently. See lib/log.
+  const reject = (reason: string, status: number, error: string) => {
+    log('error', 'rejected', { reason, status })
+    return NextResponse.json({ ok: false, error }, { status })
+  }
+
   // ── Validate BEFORE streaming (see header note on the locked-200 status) ──────
   let body: ChatRequestBody
   try {
     body = (await req.json()) as ChatRequestBody
   } catch {
-    return NextResponse.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 })
+    return reject('bad_json', 400, 'Invalid JSON body')
   }
 
   const { letter, events, messages } = body
   if (typeof letter !== 'string') {
-    return NextResponse.json({ ok: false, error: 'Missing letter context' }, { status: 400 })
+    return reject('no_letter', 400, 'Missing letter context')
   }
   if (!Array.isArray(messages) || messages.length === 0) {
-    return NextResponse.json({ ok: false, error: 'No messages provided' }, { status: 400 })
+    return reject('no_messages', 400, 'No messages provided')
   }
   // The last turn must be the user's question — a stateless turn-taking sanity check.
   if (messages.at(-1)?.role !== 'user') {
-    return NextResponse.json(
-      { ok: false, error: 'Last message must be from the user' },
-      { status: 400 },
-    )
+    return reject('bad_turn_order', 400, 'Last message must be from the user')
   }
 
   const system = buildSystemPrompt(letter, Array.isArray(events) ? events : [])
+
+  // Counts only — the turns and the letter summary are about a named child.
+  log('log', 'started', { turnCount: messages.length, eventCount: events?.length ?? 0 })
 
   const encoder = new TextEncoder()
   const sse = (event: string, data: unknown) =>
@@ -116,17 +126,38 @@ export async function POST(req: NextRequest) {
           { timeout: 30_000 },
         )
 
+        let stopReason: string | undefined
+        let outputTokens: number | undefined
+
         for await (const event of chat) {
-          // The SDK stream emits many event kinds; we forward only text deltas.
+          // Terminal frame — carries why the reply ended and how long it ran.
+          if (event.type === 'message_delta') {
+            stopReason = event.delta.stop_reason ?? stopReason
+            outputTokens = event.usage?.output_tokens ?? outputTokens
+            continue
+          }
+          // The SDK stream emits many other event kinds; we forward only text deltas.
           if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
             controller.enqueue(sse('delta', { text: event.delta.text }))
           }
         }
+
+        // A `max_tokens` stop here truncates the reply mid-sentence rather than
+        // corrupting a payload, so it isn't an error — but it IS worth seeing in
+        // the log, because it means MAX_TOKENS is squeezing real answers.
+        log('log', 'completed', {
+          stopReason,
+          outputTokens,
+          durationMs: Date.now() - startedAt,
+        })
         controller.enqueue(sse('done', {}))
       } catch (err) {
         // 200 + headers are already committed, so we can't switch to a 500. Deliver
         // a sanitized error in-band (never leak SDK error text) and close.
-        console.error('[chat] streaming failed:', err)
+        log('error', 'failed', {
+          message: err instanceof Error ? err.message : String(err),
+          durationMs: Date.now() - startedAt,
+        })
         controller.enqueue(
           sse('error', { message: 'The assistant could not respond. Please try again.' }),
         )

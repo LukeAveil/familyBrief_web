@@ -46,9 +46,41 @@ import { MOCK_MULTIPLE } from '@/lib/mock-data'
 // panel-scoped error states.)
 type WorkspaceScreen = 'upload' | 'workspace'
 
-// Friendly, non-technical error copy — the SDK/network detail never reaches here.
+// Fallback copy, used only when the server didn't tell us anything more specific.
+//
+// These used to be the ONLY thing a parent ever saw: a truncated extraction, a
+// rate limit, an oversized file and a dropped connection all rendered the same
+// sentence, which made a real bug impossible to diagnose from the UI. The server
+// computes good, already-sanitized messages — `resolveError` below prefers those
+// and falls back to these.
 const STREAM_ERROR = 'We couldn’t read that letter. Please try again.'
 const EVENTS_ERROR = 'We couldn’t pull the events from that letter.'
+
+/**
+ * Turn a non-OK response into the best message we can offer.
+ *
+ * Two sources, in order of preference:
+ *   1. The route's own JSON body (`{ ok: false, error }`) — already sanitized and
+ *      written for a parent, e.g. "Too many requests. Please wait a moment."
+ *   2. The status code, when there is no such body. This matters: a rejection at
+ *      the PLATFORM edge (Vercel returns 413 for any request body over 4.5 MB)
+ *      never reaches our route, so the response is HTML or plain text and
+ *      `res.json()` throws. That case has to degrade to something honest rather
+ *      than blowing up the handler.
+ */
+async function resolveError(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: unknown }
+    if (typeof body.error === 'string' && body.error) return body.error
+  } catch {
+    // Not our JSON shape — fall through to the status-based copy below.
+  }
+
+  if (res.status === 413) return 'That file was too large to send. Please try a smaller one.'
+  if (res.status === 429) return 'Too many uploads just now. Please wait a moment and try again.'
+  if (res.status === 415) return 'That file type isn’t supported. Try a PDF or a photo.'
+  return STREAM_ERROR
+}
 
 // ─── SSE parsing ──────────────────────────────────────────────────────────────
 // The server sends Server-Sent Events: frames separated by a blank line, each
@@ -134,9 +166,13 @@ export default function ScreenRouter() {
 
   // Both panels failed independently (whole-stream failure). Independent writes:
   // each panel reads only its own store, so neither error depends on the other.
-  const failBoth = useCallback(() => {
+  //
+  // `message` is the server's own explanation when we have one. It goes to the
+  // left panel, which is where a parent is already reading prose; the events panel
+  // keeps its short standing copy so the two panels don't repeat the same sentence.
+  const failBoth = useCallback((message?: string) => {
     if (!mountedRef.current) return
-    useLeftPanelStore.getState().setError(STREAM_ERROR)
+    useLeftPanelStore.getState().setError(message ?? STREAM_ERROR)
     useEventsStore.getState().setError(EVENTS_ERROR)
   }, [])
 
@@ -174,9 +210,11 @@ export default function ScreenRouter() {
         })
 
         // ── Failure 1: non-SSE response (validation/rate-limit reject) ──────────
+        // The body used to be discarded here, which is why a 413 and a 429 looked
+        // identical to the parent. Read it and say what actually happened.
         const contentType = res.headers.get('content-type') ?? ''
         if (!res.ok || !contentType.includes('text/event-stream') || !res.body) {
-          failBoth()
+          failBoth(await resolveError(res))
           return
         }
 
@@ -238,7 +276,11 @@ export default function ScreenRouter() {
               // Don't return — a trailing `status: complete` frame may follow.
             } else if (frame.event === 'error') {
               // Server reported a sanitized, in-band failure of the whole stream.
-              failBoth()
+              // Its message is already parent-facing copy (e.g. the truncation
+              // notice, which names a limit and suggests splitting the letter),
+              // so show it rather than overwriting it with the generic line.
+              const { message } = payload as { message?: string }
+              failBoth(message)
               return
             }
           }
