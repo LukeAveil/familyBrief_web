@@ -100,6 +100,47 @@ function mockSuccess(text = MOCK_FULL_TEXT) {
   mockStream.mockImplementationOnce(() => fakeStream(text))
 }
 
+// A stream that ends the way the real SDK signals "I ran out of room": text, then
+// a terminal message_delta carrying stop_reason. The text is deliberately cut off
+// mid-object — that is exactly what a truncated events array looks like.
+function fakeTruncatedStream(stopReason = 'max_tokens', outputTokens = 16000) {
+  const text = `Here is a summary.\n${EVENTS_DELIMITER}\n[{"title":"Sports Day","da`
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }
+      yield {
+        type: 'message_delta',
+        delta: { stop_reason: stopReason, stop_sequence: null },
+        usage: { output_tokens: outputTokens },
+      }
+    },
+  }
+}
+
+// Capture everything written to the console during a test so we can assert on the
+// structured log lines (and, just as importantly, on what they must NOT contain).
+function captureLogs() {
+  const lines: string[] = []
+  const record = (...args: unknown[]) => void lines.push(args.map(String).join(' '))
+  const log = jest.spyOn(console, 'log').mockImplementation(record)
+  const error = jest.spyOn(console, 'error').mockImplementation(record)
+  return {
+    lines,
+    parsed: () =>
+      lines.flatMap((l) => {
+        try {
+          return [JSON.parse(l) as Record<string, unknown>]
+        } catch {
+          return []
+        }
+      }),
+    restore: () => {
+      log.mockRestore()
+      error.mockRestore()
+    },
+  }
+}
+
 // Read an SSE Response body to completion and return its parsed frames.
 async function collectSSE(res: Response): Promise<{ event: string; data: string }[]> {
   const body = await res.text()
@@ -235,6 +276,167 @@ describe('POST /api/upload — extraction (SSE)', () => {
     // Per-field confidence: title and datetime always present, each a valid level.
     expect(['high', 'medium', 'low']).toContain(event.confidence.title)
     expect(['high', 'medium', 'low']).toContain(event.confidence.datetime)
+  })
+})
+
+// ─── Truncation tests ─────────────────────────────────────────────────────────
+
+describe('POST /api/upload — truncation', () => {
+  it('reports running out of room, not invalid JSON, when the model hits max_tokens', async () => {
+    const logs = captureLogs()
+    mockStream.mockImplementationOnce(() => fakeTruncatedStream())
+
+    const frames = await collectSSE(await POST(makeRequest(makeFormData(makePdf()))))
+    const errFrame = frames.find((f) => f.event === 'error')
+
+    expect(errFrame).toBeTruthy()
+    const { message } = JSON.parse(errFrame!.data)
+    // The parent needs to know the letter was too dense and what to do about it —
+    // NOT the generic copy every other failure produces.
+    expect(message).toContain('more events than we could read')
+    expect(message).not.toBe('Extraction failed. Please try again.')
+    // The truncated array must never reach the parser: "invalid JSON" points at
+    // the wrong problem and is what made the original bug so hard to diagnose.
+    expect(errFrame!.data).not.toContain('invalid JSON')
+
+    logs.restore()
+  })
+
+  it('never emits a done frame for a truncated stream', async () => {
+    const logs = captureLogs()
+    mockStream.mockImplementationOnce(() => fakeTruncatedStream())
+
+    const frames = await collectSSE(await POST(makeRequest(makeFormData(makePdf()))))
+    // Half-formed events are actionable data a parent would put in a calendar.
+    // Truncation must fail closed rather than deliver a partial list.
+    expect(frames.some((f) => f.event === 'done')).toBe(false)
+
+    logs.restore()
+  })
+
+  it('logs the truncation so it is visible in the dashboard', async () => {
+    const logs = captureLogs()
+    mockStream.mockImplementationOnce(() => fakeTruncatedStream())
+
+    await collectSSE(await POST(makeRequest(makeFormData(makePdf()))))
+    const truncated = logs.parsed().find((l) => l.event === 'truncated')
+
+    expect(truncated).toMatchObject({ src: 'upload' })
+    expect(typeof truncated!.durationMs).toBe('number')
+
+    logs.restore()
+  })
+
+  it('completes normally when stop_reason is end_turn', async () => {
+    const logs = captureLogs()
+    mockStream.mockImplementationOnce(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: MOCK_FULL_TEXT },
+        }
+        yield {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+          usage: { output_tokens: 420 },
+        }
+      },
+    }))
+
+    const frames = await collectSSE(await POST(makeRequest(makeFormData(makePdf()))))
+    expect(frames.some((f) => f.event === 'done')).toBe(true)
+    expect(frames.some((f) => f.event === 'error')).toBe(false)
+
+    logs.restore()
+  })
+})
+
+// ─── Logging tests ────────────────────────────────────────────────────────────
+
+describe('POST /api/upload — logging', () => {
+  it.each([
+    ['bad_type', () => makeFile('notes.txt', 'text/plain'), 415],
+    ['too_large', () => makePdf('big.pdf', MAX_FILE_SIZE_BYTES + 1), 413],
+    ['magic_bytes', () => makeFile('fake.pdf', 'application/pdf', 100), 415],
+  ])('logs %s rejections instead of failing silently', async (reason, makeIt, status) => {
+    const logs = captureLogs()
+
+    await POST(makeRequest(makeFormData(makeIt())))
+    const rejected = logs.parsed().find((l) => l.event === 'rejected')
+
+    // Every rejection path used to return with no log line at all, which is why a
+    // failed upload showed up in the dashboard as a bare status code.
+    expect(rejected).toMatchObject({ src: 'upload', reason, status })
+
+    logs.restore()
+  })
+
+  it('records the Vercel request id so a log line ties to a dashboard entry', async () => {
+    const logs = captureLogs()
+    const req = new NextRequest('http://localhost/api/upload', {
+      method: 'POST',
+      body: makeFormData(makeFile('notes.txt', 'text/plain')),
+      headers: { 'x-forwarded-for': uniqueIp(), 'x-vercel-id': 'lhr1::abc123' },
+    })
+
+    await POST(req)
+    expect(logs.parsed().find((l) => l.event === 'rejected')?.reqId).toBe('lhr1::abc123')
+
+    logs.restore()
+  })
+
+  it('logs token spend on success so the ceiling is observable before it bites', async () => {
+    const logs = captureLogs()
+    mockStream.mockImplementationOnce(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: MOCK_FULL_TEXT },
+        }
+        yield {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+          usage: { output_tokens: 1234 },
+        }
+      },
+    }))
+
+    await collectSSE(await POST(makeRequest(makeFormData(makePdf()))))
+    const completed = logs.parsed().find((l) => l.event === 'completed')
+
+    expect(completed).toMatchObject({
+      src: 'upload',
+      stopReason: 'end_turn',
+      outputTokens: 1234,
+      eventCount: 1,
+    })
+
+    logs.restore()
+  })
+
+  // These letters are about named children. A log drain is not a safe place for
+  // that, so the logs record shape and never content — see lib/log.
+  it('never writes the filename or event contents to the log', async () => {
+    const logs = captureLogs()
+    mockSuccess()
+
+    await collectSSE(
+      await POST(makeRequest(makeFormData(makePdf('Tommy-Smith-permission-slip.pdf')))),
+    )
+    const all = logs.lines.join('\n')
+
+    expect(all).not.toContain('Tommy-Smith')
+    expect(all).not.toContain('.pdf')
+    expect(all).not.toContain('Sports Day') // event title
+    expect(all).not.toContain('Playing Fields') // event location
+    // …but the shape a debugger actually needs is there.
+    expect(logs.parsed().some((l) => l.event === 'started' && l.mime === 'application/pdf')).toBe(
+      true,
+    )
+
+    logs.restore()
   })
 })
 

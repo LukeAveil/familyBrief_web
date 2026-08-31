@@ -5,7 +5,9 @@
 import {
   ACCEPTED_FILE_TYPES,
   MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_LABEL,
   buildAcceptAttr,
+  formatBytes,
   isAcceptedType,
   acceptedExtensionsLabel,
   validateMagicBytes,
@@ -82,8 +84,41 @@ describe('acceptedExtensionsLabel', () => {
 })
 
 describe('MAX_FILE_SIZE_BYTES', () => {
-  it('is 20 MB', () => {
-    expect(MAX_FILE_SIZE_BYTES).toBe(20 * 1024 * 1024)
+  // Vercel rejects any request body over 4.5 MB with a 413 BEFORE the route runs,
+  // so an app limit above that is unenforceable: files in the gap die at the edge
+  // with an opaque error the route never gets to explain. Raising the real ceiling
+  // requires uploading to blob storage first, not just a bigger number here.
+  const VERCEL_LIMIT_BINARY = 4.5 * 1024 * 1024 // 4,718,592
+  // Multipart framing (boundaries + part headers) adds ~300 bytes to the body, so
+  // the limit must leave at least that much room under the platform cap.
+  const MULTIPART_OVERHEAD = 1024
+
+  it('leaves room for multipart framing under the platform cap', () => {
+    expect(MAX_FILE_SIZE_BYTES + MULTIPART_OVERHEAD).toBeLessThanOrEqual(VERCEL_LIMIT_BINARY)
+  })
+
+  it('is 4,700,000 bytes', () => {
+    expect(MAX_FILE_SIZE_BYTES).toBe(4_700_000)
+  })
+})
+
+describe('MAX_FILE_SIZE_LABEL', () => {
+  it('never advertises more than the limit actually allows', () => {
+    // Floored, not rounded. Promising "4.5 MB" and then rejecting a 4.5 MB file is
+    // the kind of small lie that wastes an afternoon.
+    const advertised = parseFloat(MAX_FILE_SIZE_LABEL) * 1024 * 1024
+    expect(advertised).toBeLessThanOrEqual(MAX_FILE_SIZE_BYTES)
+  })
+
+  it('reads as a size, ready to drop into copy', () => {
+    expect(MAX_FILE_SIZE_LABEL).toBe('4.4 MB')
+  })
+})
+
+describe('formatBytes', () => {
+  it('renders a human-readable MB string', () => {
+    expect(formatBytes(4 * 1024 * 1024)).toBe('4.0 MB')
+    expect(formatBytes(352 * 1024)).toBe('0.3 MB')
   })
 })
 

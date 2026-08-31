@@ -1,6 +1,7 @@
 import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import UploadZone from '@/components/upload/UploadZone'
+import { MAX_FILE_SIZE_BYTES } from '@/lib/file-config'
 
 const onFileReady = jest.fn()
 
@@ -91,5 +92,88 @@ describe('UploadZone', () => {
     // Upload with no files — userEvent skips if array is empty
     await user.upload(input, [])
     expect(onFileReady).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Rejections ───────────────────────────────────────────────────────────────
+// Unusable files used to be dropped on the floor: handleFile just returned, so
+// nothing happened at all and the parent had nothing to act on.
+
+describe('UploadZone — rejections', () => {
+  const fileOfSize = (bytes: number, name = 'letter.pdf', type = 'application/pdf') =>
+    new File([new ArrayBuffer(bytes)], name, { type })
+
+  const pickFile = async (user: ReturnType<typeof userEvent.setup>, file: File) => {
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]:not([capture])')!
+    await user.upload(input, file)
+  }
+
+  it('refuses an oversized file before it is ever uploaded', async () => {
+    const { user } = setup()
+    await pickFile(user, fileOfSize(MAX_FILE_SIZE_BYTES + 1))
+
+    // Catching it here matters twice over: Vercel rejects an oversized body at the
+    // edge with an opaque 413 the route can't explain, and we avoid pushing a
+    // doomed file over a phone connection.
+    expect(onFileReady).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent(/the limit is 4\.4 MB/i)
+  })
+
+  it('names the actual size so the parent knows how far over they are', async () => {
+    const { user } = setup()
+    await pickFile(user, fileOfSize(6 * 1024 * 1024))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/6\.0 MB/)
+  })
+
+  it('accepts a 4.41 MB file — the real-world case this limit was sized for', async () => {
+    const { user } = setup()
+    await pickFile(user, fileOfSize(4_624_220))
+
+    expect(onFileReady).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('accepts a file exactly at the limit', async () => {
+    const { user } = setup()
+    await pickFile(user, fileOfSize(MAX_FILE_SIZE_BYTES))
+
+    expect(onFileReady).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('explains an unsupported file type instead of silently ignoring it', () => {
+    setup()
+    // Dropped rather than picked: the file input carries an `accept` attribute, so
+    // userEvent.upload filters a text/plain file out before any event fires. Drag
+    // and drop has no such filter, which is exactly why the guard has to exist.
+    const zone = screen.getByRole('button', { name: /upload a school letter/i })
+    const dropEvent = new Event('drop', { bubbles: true }) as unknown as React.DragEvent
+    Object.defineProperty(dropEvent, 'dataTransfer', {
+      value: { files: [fileOfSize(100, 'notes.txt', 'text/plain')] },
+    })
+    act(() => {
+      zone.dispatchEvent(dropEvent as unknown as Event)
+    })
+
+    expect(onFileReady).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent(/isn.t supported/i)
+  })
+
+  it('clears the rejection once a good file is chosen', async () => {
+    const { user } = setup()
+    await pickFile(user, fileOfSize(MAX_FILE_SIZE_BYTES + 1))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+
+    await pickFile(user, fileOfSize(1024))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(onFileReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the size limit up front, before anything is picked', () => {
+    setup()
+    // Finding out about the limit only AFTER picking a file is the frustrating
+    // version of this, so the number has to be visible on the idle screen.
+    expect(screen.getByText(/maximum file size 4\.4 MB/i)).toBeInTheDocument()
   })
 })

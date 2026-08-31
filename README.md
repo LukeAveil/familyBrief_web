@@ -27,7 +27,8 @@ components/
   icons/          — SVG icon set
 lib/
   extract-events  — Claude API call, prompt, and response → CalendarEvent mapping
-  file-config     — Accepted MIME types and 20 MB size limit
+  file-config     — Accepted MIME types and 4.4 MB size limit
+  log             — Structured request logging shared by both API routes
   mock-data       — PROC_MSGS used by ProcessingScreen; MOCK_* fixtures unused
 types/
   index.ts        — Shared TypeScript types
@@ -51,7 +52,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ### Done
 
 - [x] Full UI — upload, processing, results, and error screens with transitions
-- [x] File upload API route — type and size validation (20 MB cap)
+- [x] File upload API route — type and size validation (4.4 MB cap, set by Vercel's request-body limit)
 - [x] AI extraction — Claude reads PDFs and images, returns structured events
 - [x] Google Calendar URL generation — pre-fills title, date/time, location, notes
 - [x] Multi-event selection — checkboxes, "Add N events" bulk action

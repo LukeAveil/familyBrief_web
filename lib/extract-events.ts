@@ -29,14 +29,53 @@ import type { CalendarEvent, ConfidenceLevel, EventConfidence } from '@/types'
 // Exported so the chat route reuses the EXACT same model as extraction — one
 // source of truth, no chance of the two paths drifting onto different models.
 export const MODEL = 'claude-sonnet-4-6'
-// Bumped from 1024 → 2048 to leave room for the streamed summary prose that now
-// precedes the JSON array (the event payload itself is small).
-const MAX_TOKENS = 2048
+// This budget covers BOTH halves of the response: the summary prose AND the
+// complete JSON array. That makes it scale with the number of events, not with
+// the size of the letter.
+//
+// It was 2048, which fit only ~13-16 events: each one serialises to roughly
+// 100-150 tokens (title, date, time, endTime, location, description, category,
+// plus the three-field confidence object). A newsletter with 20+ dates ran out
+// of room mid-array, and the truncated JSON surfaced to the parent as "we
+// couldn't read that letter" — see the max_tokens guard in streamEventsFromFile.
+//
+// 16000 leaves room for well over 100 events. It's a ceiling, not a spend (only
+// generated tokens are billed), and it stays under the SDK's HTTP timeout on the
+// NON-streaming path below, which shares this constant.
+const MAX_TOKENS = 16000
+
+// The model can outrun a 30s budget on a dense letter now that MAX_TOKENS allows
+// a much longer response, and a timeout looks identical to any other failure from
+// the outside. Vercel's own function limit is 300s by default, so this — not the
+// platform — is the binding constraint; keep it well inside that ceiling.
+// NOTE: the TypeScript SDK takes milliseconds.
+const REQUEST_TIMEOUT_MS = 120_000
 
 // Sentinel the model writes between the human-readable summary and the JSON
 // array. Exported so the streaming splitter and tests share one source of truth.
 // Chosen to be distinctive enough that it will never appear in a real summary.
 export const EVENTS_DELIMITER = '<<<EVENTS_JSON>>>'
+
+/**
+ * Thrown when the model hit `max_tokens` before finishing the JSON array.
+ *
+ * WHY THIS IS ITS OWN TYPE: the symptom of truncation is a JSON parse failure,
+ * but the CAUSE is a budget that was too small — and those two want different
+ * responses. A parse failure is a bug worth retrying; running out of room is a
+ * limit the parent should be told about honestly ("this letter has more events
+ * than we can read in one go") so they can split the letter and get an answer.
+ * Collapsing them into one generic error is what made the original bug so hard
+ * to diagnose: the log said "invalid JSON", which pointed at the wrong problem.
+ *
+ * The route matches on this class to pick the user-facing copy — it is the one
+ * error whose message is safe to show, because we wrote it rather than the SDK.
+ */
+export class TruncatedExtractionError extends Error {
+  constructor() {
+    super('Model hit max_tokens before completing the events JSON')
+    this.name = 'TruncatedExtractionError'
+  }
+}
 
 // Lazy client — created on first use so importing this module never throws
 // even when ANTHROPIC_API_KEY is absent (e.g. in tests that mock the SDK).
@@ -312,8 +351,12 @@ async function extractFromContent(
       max_tokens: MAX_TOKENS,
       messages: [{ role: 'user', content }],
     },
-    { timeout: 30_000 },
+    { timeout: REQUEST_TIMEOUT_MS },
   )
+
+  // Same truncation guard as the streaming path — see TruncatedExtractionError.
+  // Without it a cut-off array reaches the parser and reports itself as bad JSON.
+  if (response.stop_reason === 'max_tokens') throw new TruncatedExtractionError()
 
   const raw = response.content[0].type === 'text' ? response.content[0].text : '[]'
   // Discard the summary half; only the JSON payload is mapped to events.
@@ -384,7 +427,17 @@ export type AgentStage = 'reading' | 'summarizing' | 'extracting' | 'complete'
 export type StreamChunk =
   | { type: 'summary_delta'; text: string }
   | { type: 'status'; stage: AgentStage }
-  | { type: 'result'; summary: string; events: CalendarEvent[] }
+  | {
+      type: 'result'
+      summary: string
+      events: CalendarEvent[]
+      // Diagnostics for the server log, NOT for the client. The route reads these
+      // to record how close a real letter came to the token ceiling; it does not
+      // forward them over SSE. Optional because the non-streaming path and the
+      // test doubles don't always surface a message_delta frame.
+      stopReason?: string
+      outputTokens?: number
+    }
 
 /**
  * Stream a file through Claude, yielding the human-readable summary progressively
@@ -406,7 +459,7 @@ export async function* streamEventsFromFile(
       max_tokens: MAX_TOKENS,
       messages: [{ role: 'user', content: buildContent(base64, mimeType) }],
     },
-    { timeout: 30_000 },
+    { timeout: REQUEST_TIMEOUT_MS },
   )
 
   // Transition 1 — the stream is open but no tokens have arrived yet.
@@ -420,9 +473,22 @@ export async function* streamEventsFromFile(
   let sawDelimiter = false
   // Guards so each status transition fires exactly once, at its natural moment.
   let announcedSummarizing = false
+  // Why the response ended, and how much it wrote. Both arrive on the SDK's
+  // terminal `message_delta` frame. We read them here rather than via
+  // stream.finalMessage() so the stream stays a plain async-iterable — the only
+  // thing this function needs from it, and the only thing the tests have to fake.
+  let stopReason: string | undefined
+  let outputTokens: number | undefined
 
   for await (const event of stream) {
-    // The SDK stream emits many event kinds; we only care about text deltas.
+    // Terminal frame: carries stop_reason and the cumulative output token count.
+    if (event.type === 'message_delta') {
+      stopReason = event.delta.stop_reason ?? stopReason
+      outputTokens = event.usage?.output_tokens ?? outputTokens
+      continue
+    }
+
+    // The SDK stream emits many other event kinds; we only care about text deltas.
     if (event.type !== 'content_block_delta' || event.delta.type !== 'text_delta') continue
     full += event.delta.text
 
@@ -468,9 +534,21 @@ export async function* streamEventsFromFile(
     if (sawDelimiter) yield { type: 'status', stage: 'extracting' }
   }
 
-  // Stream finished: split, parse, and hand back the complete result atomically.
+  // Stream finished. Check WHY before parsing: if the model ran out of budget the
+  // JSON array is cut off mid-object, and handing that to the parser would report
+  // a truncation as "invalid JSON" — the wrong diagnosis, and the exact confusion
+  // that hid this bug. Fail with the honest cause instead.
+  if (stopReason === 'max_tokens') throw new TruncatedExtractionError()
+
+  // Split, parse, and hand back the complete result atomically.
   const [summary, jsonPart] = splitOnDelimiter(full)
-  yield { type: 'result', summary: summary.trim(), events: parseAndMapEvents(jsonPart) }
+  yield {
+    type: 'result',
+    summary: summary.trim(),
+    events: parseAndMapEvents(jsonPart),
+    stopReason,
+    outputTokens,
+  }
   // Transition 4 — everything has been delivered; the status line can clear.
   yield { type: 'status', stage: 'complete' }
 }

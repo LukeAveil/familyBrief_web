@@ -3,7 +3,14 @@
 import { useRef, useState, useSyncExternalStore } from 'react'
 import DocIllustration from '@/components/DocIllustration'
 import { UploadIcon, CameraIcon } from '@/components/icons'
-import { buildAcceptAttr, isAcceptedType, acceptedExtensionsLabel } from '@/lib/file-config'
+import {
+  buildAcceptAttr,
+  isAcceptedType,
+  acceptedExtensionsLabel,
+  formatBytes,
+  MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_LABEL,
+} from '@/lib/file-config'
 
 interface UploadZoneProps {
   onFileReady: (file: File) => void
@@ -40,6 +47,11 @@ function getTouchServerSnapshot(): boolean {
 
 export default function UploadZone({ onFileReady }: UploadZoneProps) {
   const [drag, setDrag] = useState(false)
+  // Rejections are shown HERE rather than handed upward, because this is where the
+  // file picker is: the parent can pick a different file without going anywhere.
+  // Previously an unusable file was dropped on the floor — `handleFile` just
+  // returned — so nothing happened at all and there was nothing to act on.
+  const [rejection, setRejection] = useState<string | null>(null)
   const isTouchDevice = useSyncExternalStore(
     subscribeTouch,
     getTouchSnapshot,
@@ -50,8 +62,24 @@ export default function UploadZone({ onFileReady }: UploadZoneProps) {
 
   const handleFile = (f: File | null | undefined, input?: HTMLInputElement | null) => {
     if (!f) return
-    if (!isAcceptedType(f)) return
+    // Always reset the input, including on rejection — otherwise picking the SAME
+    // file again fires no change event and the parent appears stuck.
     if (input) input.value = ''
+
+    if (!isAcceptedType(f)) {
+      setRejection(`That file type isn’t supported. Try ${acceptedExtensionsLabel()}.`)
+      return
+    }
+    // Check the size BEFORE uploading. The server checks it too, but the request
+    // never gets that far: Vercel rejects any body over its own limit at the edge,
+    // which is an opaque 413 the route can't turn into a useful message. Catching
+    // it here also means we don't push a doomed file over a phone connection.
+    if (f.size > MAX_FILE_SIZE_BYTES) {
+      setRejection(`That file is ${formatBytes(f.size)} — the limit is ${MAX_FILE_SIZE_LABEL}.`)
+      return
+    }
+
+    setRejection(null)
     onFileReady(f)
   }
 
@@ -135,7 +163,23 @@ export default function UploadZone({ onFileReady }: UploadZoneProps) {
         )}
       </div>
 
+      {/* The size limit gets its own line and a stronger weight than the file-type
+          list. It's the constraint a parent is most likely to hit — a phone photo
+          or a newsletter with scanned pages runs large — and finding out only
+          after picking a file is the frustrating version of this. */}
       <p className="mt-4 text-xs text-ink-subtle">Accepts {acceptedExtensionsLabel()}</p>
+      <p className="mt-1 text-xs font-medium text-ink-muted">
+        Maximum file size {MAX_FILE_SIZE_LABEL}
+      </p>
+
+      {/* role="alert" so a screen reader announces the rejection: the visual cue
+          is a line of text appearing under a button the user just pressed, which
+          is easy to miss and impossible to hear otherwise. */}
+      {rejection && (
+        <p role="alert" className="mt-2 text-xs font-medium text-error">
+          {rejection}
+        </p>
+      )}
     </div>
   )
 }
